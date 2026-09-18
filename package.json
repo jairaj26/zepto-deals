@@ -1,0 +1,24 @@
+{
+  "name": "zepto-deals-tracker",
+  "version": "1.0.0",
+  "description": "Automated Zepto 70%+ deals tracker, Telegram notifier bot, and interactive browser deals bookmarklet.",
+  "main": "zepto-bot.js",
+  "scripts": {
+    "start": "node zepto-bot.js",
+    "bot": "node zepto-bot.js"
+  },
+  "keywords": [
+    "zepto",
+    "deals",
+    "tracker",
+    "bot",
+    "telegram",
+    "discounts",
+    "bookmarklet"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.44.0"
+  }
+}

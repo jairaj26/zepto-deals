@@ -1,0 +1,52 @@
+name: Zepto Deals Alert Bot
+
+on:
+  schedule:
+    # Run at the top of every hour (UTC)
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+permissions:
+  contents: write # Needed to commit deals_state.json back to repo for 2-hour deduplication
+
+jobs:
+  scrape-and-alert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run Zepto Deals Bot
+        env:
+          # Required for Telegram notifications
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          
+          # Optional Discord notifications
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+          # Target delivery location (defaults to Central Bengaluru if not provided)
+          USER_LATITUDE: ${{ secrets.USER_LATITUDE }}
+          USER_LONGITUDE: ${{ secrets.USER_LONGITUDE }}
+
+          # Optional filter overrides
+          MIN_DISCOUNT_PERCENT: ${{ vars.MIN_DISCOUNT_PERCENT || secrets.MIN_DISCOUNT_PERCENT || '70' }}
+          ZEPTO_CATEGORY_ID: ${{ vars.ZEPTO_CATEGORY_ID || secrets.ZEPTO_CATEGORY_ID || '' }}
+        run: node zepto-bot.js
+
+      - name: Commit Updated Deals State
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update zepto deals state [skip ci]"
+          file_pattern: "deals_state.json"
