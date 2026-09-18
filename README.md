@@ -79,6 +79,7 @@ In your forked repository, navigate to **Settings** > **Secrets and variables** 
 | `TELEGRAM_CHAT_ID` | **Yes** (for Telegram) | Your Telegram Chat or Channel ID (from [@userinfobot](https://t.me/userinfobot)) | `987654321` |
 | `USER_LATITUDE` | Optional (Recommended) | Delivery location latitude (defaults to `12.9716`) | `12.9716` |
 | `USER_LONGITUDE` | Optional (Recommended) | Delivery location longitude (defaults to `77.5946`) | `77.5946` |
+| `ZEPTO_SESSION_HEADERS` | Optional | Direct session headers (Click **Copy Bot Headers** in the bookmarklet panel) | `{"request-signature": "...", ...}` |
 | `DISCORD_WEBHOOK_URL` | Optional | Discord Webhook URL for Discord notifications | `https://discord.com/api/webhooks/...` |
 
 > [!TIP]

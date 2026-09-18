@@ -19,6 +19,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "playwright": "^1.44.0"
+    "playwright": "^1.63.0"
   }
 }

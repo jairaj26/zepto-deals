@@ -25,7 +25,7 @@ jobs:
       - name: Install Dependencies
         run: |
           npm install playwright
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chrome || npx playwright install --with-deps chromium
 
       - name: Run Zepto Deals Bot
         env:
@@ -39,6 +39,10 @@ jobs:
           # Target delivery location (defaults to Central Bengaluru if not provided)
           USER_LATITUDE: ${{ secrets.USER_LATITUDE }}
           USER_LONGITUDE: ${{ secrets.USER_LONGITUDE }}
+
+          # Optional Pre-configured Session (Bypasses headless browser if provided)
+          ZEPTO_SESSION_HEADERS: ${{ secrets.ZEPTO_SESSION_HEADERS }}
+          ZEPTO_COOKIE: ${{ secrets.ZEPTO_COOKIE }}
 
           # Optional filter overrides
           MIN_DISCOUNT_PERCENT: ${{ vars.MIN_DISCOUNT_PERCENT || secrets.MIN_DISCOUNT_PERCENT || '70' }}

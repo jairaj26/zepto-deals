@@ -1189,7 +1189,7 @@
 
     const panel = document.createElement('div');
     panel.id = 'zdeals-panel';
-    panel.innerHTML = '<div class="zd-header"><span>Zepto Deals</span><button class="zd-refresh" id="zdeals-refresh">Reset</button></div><div id="zdeals-body"></div><div id="zdeals-footer"><button id="zdeals-fetch-btn" disabled>Select subcategories</button></div>';
+    panel.innerHTML = '<div class="zd-header"><span>Zepto Deals</span><div style="display:flex;gap:6px;"><button class="zd-refresh" id="zdeals-copy-headers" title="Copy signed headers & cookies for GitHub Actions bot">Copy Bot Headers</button><button class="zd-refresh" id="zdeals-refresh">Reset</button></div></div><div id="zdeals-body"></div><div id="zdeals-footer"><button id="zdeals-fetch-btn" disabled>Select subcategories</button></div>';
     document.body.appendChild(panel);
 
     fab.addEventListener('click', async () => {
@@ -1210,6 +1210,31 @@
       selections.clear();
       resetFetchButton();
       await loadCategoryList(true);
+    });
+
+    document.getElementById('zdeals-copy-headers').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const btn = document.getElementById('zdeals-copy-headers');
+      if (!capturedHeaders) {
+        btn.textContent = 'Syncing...';
+        await ensureSessionAtStart(() => {});
+      }
+      if (!capturedHeaders) {
+        alert('Please click on any category on Zepto first so signed headers can be captured.');
+        btn.textContent = 'Copy Bot Headers';
+        return;
+      }
+      const exportPayload = Object.assign({}, capturedHeaders);
+      if (document.cookie) {
+        exportPayload['cookie'] = document.cookie;
+      }
+      const str = JSON.stringify(exportPayload);
+      navigator.clipboard.writeText(str).then(() => {
+        btn.textContent = '✔ Copied!';
+        setTimeout(() => { btn.textContent = 'Copy Bot Headers'; }, 2500);
+      }).catch(() => {
+        prompt('Copy this JSON and paste into GitHub Secrets as ZEPTO_SESSION_HEADERS:', str);
+      });
     });
 
     const fetchBtn = document.getElementById('zdeals-fetch-btn');

@@ -3,7 +3,8 @@
  * -------------------------------------------------------------------
  * Runs autonomously via GitHub Actions (hourly schedule) or locally.
  * - Targets: Atta, Oil, Ghee, Dals & Pulses, Rice & More (or custom)
- * - Captures fresh session via Playwright headless Chromium
+ * - Captures fresh session via Google Chrome with anti-automation WAF handling
+ * - Supports optional ZEPTO_SESSION_HEADERS / ZEPTO_COOKIE secret override
  * - Filters items with >= MIN_DISCOUNT_PERCENT (default: 70%)
  * - Mutes items with the same price for 2+ consecutive hours for that day
  * - Sends alerts via Telegram Bot or Discord Webhook
@@ -33,6 +34,10 @@ const MIN_DISCOUNT_PERCENT = process.env.MIN_DISCOUNT_PERCENT ? parseInt(process
 const MAX_PAGES_PER_SUBCAT = parseInt(process.env.MAX_PAGES_PER_SUBCAT, 10) || 15;
 const STATE_FILE = path.join(__dirname, 'deals_state.json');
 
+// Optional Pre-configured Session (e.g. from GitHub Secrets)
+const ZEPTO_SESSION_HEADERS = process.env.ZEPTO_SESSION_HEADERS;
+const ZEPTO_COOKIE = process.env.ZEPTO_COOKIE;
+
 // ===================== TARGET CONFIG =====================
 // Target Category: "Atta, Rice, Oil & Dals"
 const CATEGORY_ID = process.env.ZEPTO_CATEGORY_ID || '2f7190d0-7c40-458b-b450-9a1006db3d95';
@@ -49,15 +54,49 @@ async function captureSession() {
   const targetLat = USER_LATITUDE || DEFAULT_LATITUDE;
   const targetLon = USER_LONGITUDE || DEFAULT_LONGITUDE;
 
-  console.log(`[1/4] Launching headless browser to capture fresh Zepto session...`);
+  // 1. Check if user provided pre-configured session headers / cookies via Secrets
+  if (ZEPTO_SESSION_HEADERS) {
+    try {
+      const parsed = typeof ZEPTO_SESSION_HEADERS === 'string' ? JSON.parse(ZEPTO_SESSION_HEADERS) : ZEPTO_SESSION_HEADERS;
+      console.log('✔ Using pre-configured ZEPTO_SESSION_HEADERS from environment/secrets.');
+      return { headers: parsed, location: { latitude: targetLat, longitude: targetLon } };
+    } catch (e) {
+      console.warn('Notice: Could not parse ZEPTO_SESSION_HEADERS as JSON. Proceeding with browser session capture...');
+    }
+  }
+
+  console.log(`[1/4] Launching browser to capture fresh Zepto session & solve AWS WAF...`);
   console.log(`      Location: Lat ${targetLat}, Lon ${targetLon} ${USER_LATITUDE ? '(from USER_LATITUDE/LONGITUDE)' : '(default fallback)'}`);
 
-  const browser = await chromium.launch({ headless: true });
+  const launchArgs = [
+    '--headless=new',
+    '--disable-blink-features=AutomationControlled',
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu'
+  ];
+
+  let browser;
+  try {
+    browser = await chromium.launch({
+      channel: 'chrome',
+      args: launchArgs
+    });
+  } catch (e) {
+    console.log('System Google Chrome not found, falling back to bundled Chromium...');
+    browser = await chromium.launch({
+      args: launchArgs
+    });
+  }
+
   const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
     geolocation: { latitude: targetLat, longitude: targetLon },
     permissions: ['geolocation']
   });
+
   const page = await context.newPage();
 
   let capturedHeaders = null;
@@ -66,11 +105,11 @@ async function captureSession() {
   // Intercept network requests destined for the BFF Gateway
   page.on('request', (req) => {
     const url = req.url();
-    if (url.includes('bff-gateway.zepto.com')) {
+    if (url.includes('bff-gateway.zepto.com/lms/api/v2/get_page')) {
       const headers = req.headers();
       if (headers['request-signature'] || headers['x-csrf-secret']) {
         if (!capturedHeaders) {
-          capturedHeaders = headers;
+          capturedHeaders = Object.assign({}, headers);
           try {
             const postData = req.postDataJSON();
             if (postData && postData.latitude && postData.longitude) {
@@ -83,18 +122,42 @@ async function captureSession() {
   });
 
   try {
-    await page.goto('https://www.zepto.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    // Trigger internal routing to initiate signed BFF queries
-    await page.waitForTimeout(1500);
-    await page.evaluate(() => {
-      const link = document.querySelector('a[href^="/search"]') || document.querySelector('a[href*="/cn/"]');
-      if (link) link.click();
-      else window.history.pushState(null, '', '/search');
-    });
-    // Wait up to 6 seconds for header capture
+    // Step A: Load home page and wait for AWS WAF silent challenge to solve and reload
+    console.log('  -> Navigating to zepto.com...');
+    await page.goto('https://www.zepto.com', { waitUntil: 'domcontentloaded', timeout: 35000 });
+
+    for (let i = 1; i <= 20; i++) {
+      await page.waitForTimeout(1000);
+      const title = await page.title();
+      if (title && title.toLowerCase().includes('zepto') && !title.startsWith('Loading')) {
+        console.log(`  ✔ Real Zepto page active after ${i}s (Title: "${title}")`);
+        break;
+      }
+    }
+
+    // Step B: Navigate to first target subcategory page to naturally trigger signed BFF queries
+    const sampleSubcat = TARGET_SUBCATS[0];
+    const categoryUrl = `https://www.zepto.com/cn/atta-rice-oil-dals/atta/cid/${CATEGORY_ID}/scid/${sampleSubcat.subCategoryId}`;
+    console.log(`  -> Navigating to category page (${sampleSubcat.name})...`);
+    
+    await page.goto(categoryUrl, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+
+    // Wait up to 8 seconds for header capture
     for (let i = 0; i < 20; i++) {
       if (capturedHeaders) break;
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(400);
+    }
+
+    // Step C: Extract cookies from browser context (including aws-waf-token)
+    if (capturedHeaders) {
+      const cookies = await context.cookies();
+      const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      if (cookieString) {
+        capturedHeaders['cookie'] = cookieString;
+      }
+      if (ZEPTO_COOKIE) {
+        capturedHeaders['cookie'] = (capturedHeaders['cookie'] ? capturedHeaders['cookie'] + '; ' : '') + ZEPTO_COOKIE;
+      }
     }
   } catch (err) {
     console.warn('Navigation notice:', err.message);
@@ -103,10 +166,14 @@ async function captureSession() {
   }
 
   if (!capturedHeaders) {
-    throw new Error('Failed to intercept signed BFF headers from Zepto. Check network connectivity or Zepto website availability.');
+    throw new Error(
+      'Failed to intercept signed BFF headers from Zepto.\n' +
+      'AWS WAF or bot detection blocked the automated browser.\n' +
+      'Tip: You can export your session from the browser bookmarklet and set ZEPTO_SESSION_HEADERS in GitHub Secrets to run without browser automation!'
+    );
   }
 
-  console.log('✔ Session captured successfully.');
+  console.log('✔ Session and signed BFF headers captured successfully.');
   return { 
     headers: capturedHeaders, 
     location: capturedLocation || { latitude: targetLat, longitude: targetLon } 
@@ -228,7 +295,7 @@ async function scrapeTargetSubcategories(session) {
       try {
         data = await fetchBffPage(body, session.headers);
       } catch (err) {
-        console.warn(`    Page ${page} error: ${err.message}`);
+        console.warn(`    Page ${page} notice: ${err.message}`);
         break;
       }
 
@@ -237,10 +304,10 @@ async function scrapeTargetSubcategories(session) {
       allDeals.push(...extracted);
 
       const endOfPage = data.pageLayout?.endOfPage;
-      const nextParams = data.pageLayout?.nextPageParams;
-      if (endOfPage || !nextParams) break;
+      const nextPageParams = data.pageLayout?.nextPageParams;
+      if (endOfPage || !nextPageParams) break;
 
-      body = Object.assign({}, body, nextParams);
+      body = Object.assign({}, body, nextPageParams);
       page++;
     }
 
