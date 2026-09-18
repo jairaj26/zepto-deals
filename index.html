@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zepto Deals & Product Sorter — 1-Click Install</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --zepto-purple: #5300f8;
+      --zepto-purple-dark: #3b00b3;
+      --zepto-purple-light: #f5f3ff;
+      --zepto-green: #0c831f;
+      --zepto-green-dark: #086317;
+      --zepto-green-light: #dcfce7;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+      --white: #ffffff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text-main);
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 680px;
+      width: 100%;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px;
+      box-shadow: 0 12px 36px rgba(15, 23, 42, 0.05);
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: var(--zepto-green-light);
+      color: var(--zepto-green);
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+
+    /* Primary Option: Userscript (Easiest for Mobile & PC) */
+    .primary-box {
+      background: linear-gradient(135deg, #f5f3ff 0%, #faf5ff 100%);
+      border: 2px solid #ddd6fe;
+      border-radius: 16px;
+      padding: 24px;
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .primary-box h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--zepto-purple);
+      margin-bottom: 6px;
+    }
+
+    .primary-box p {
+      font-size: 13.5px;
+      color: #4b5563;
+      margin-bottom: 18px;
+    }
+
+    .btn-userscript {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--zepto-purple);
+      color: var(--white);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 13px 28px;
+      border-radius: 10px;
+      box-shadow: 0 4px 14px rgba(83, 0, 248, 0.25);
+      transition: all 0.2s ease;
+    }
+
+    .btn-userscript:hover {
+      background: var(--zepto-purple-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(83, 0, 248, 0.35);
+    }
+
+    /* Option 2: Drag Bookmarklet */
+    .secondary-box {
+      background: var(--white);
+      border: 1px dashed var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .secondary-box h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .secondary-box p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    .actions-row {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    a.bookmarklet-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--zepto-green);
+      color: var(--white);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 11px 22px;
+      border-radius: 8px;
+      cursor: grab;
+      user-select: none;
+      box-shadow: 0 4px 12px rgba(12, 131, 31, 0.25);
+      transition: all 0.2s ease;
+    }
+
+    a.bookmarklet-btn:hover {
+      background: var(--zepto-green-dark);
+      transform: scale(1.02);
+    }
+
+    .btn-copy {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 13px;
+      padding: 11px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-copy:hover {
+      background: #e2e8f0;
+    }
+
+    /* Guide Sections */
+    .guide-section {
+      border-top: 1px solid var(--border);
+      padding-top: 24px;
+      margin-top: 24px;
+    }
+
+    .guide-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .guide-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13.5px;
+      color: #334155;
+    }
+
+    .step-num {
+      width: 22px;
+      height: 22px;
+      background: var(--zepto-purple-light);
+      color: var(--zepto-purple);
+      font-weight: 700;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11.5px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 32px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .footer a {
+      color: var(--zepto-purple);
+      text-decoration: none;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <div class="badge">100% Free & Open Source</div>
+    <h1>⚡ Zepto Deals & Product Sorter</h1>
+    <p class="subtitle">Extract, filter, and sort Zepto discounts directly in your browser with zero lag.</p>
+  </div>
+
+  <!-- Primary Method: Userscript -->
+  <div class="primary-box">
+    <h2>Method 1: Automatic Userscript (Recommended)</h2>
+    <p>Auto-runs whenever you open <strong>zepto.com</strong>. A handy floating deals button appears automatically on both PC and Mobile!</p>
+    <a href="https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto_deals.user.js" class="btn-userscript">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      Install Userscript (.user.js)
+    </a>
+  </div>
+
+  <!-- Secondary Method: Bookmarklet -->
+  <div class="secondary-box">
+    <h3>Method 2: Browser Bookmarklet</h3>
+    <p>Drag the green button to your bookmarks bar on Desktop, or copy the code on Mobile.</p>
+    <div class="actions-row">
+      <a class="bookmarklet-btn" href="javascript:(function(){const s=document.createElement('script');s.src='https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto-deals-bookmarklet.js?t='+Date.now();document.head.appendChild(s);})();" title="Drag to your bookmarks bar">
+        <span>⚡ Zepto Deals</span>
+      </a>
+      <button class="btn-copy" id="copy-btn">
+        <span>📋 Copy Code</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Setup Guides -->
+  <div class="guide-section">
+    <div class="guide-title">📱 How to setup on Mobile (Android & iOS)</div>
+    <div class="guide-steps">
+      <div class="step-item">
+        <div class="step-num">1</div>
+        <div><strong>Android:</strong> Install <strong>Kiwi Browser</strong> or <strong>Firefox Mobile</strong> from the Play Store (they support desktop browser extensions).</div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">2</div>
+        <div>Install the <strong>Violentmonkey</strong> or <strong>Tampermonkey</strong> extension inside the browser.</div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">3</div>
+        <div>Tap the <strong>Install Userscript</strong> button above and tap <strong>Confirm Install</strong>.</div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">4</div>
+        <div>Open <a href="https://www.zepto.com" target="_blank" style="color:var(--zepto-purple);font-weight:600;">zepto.com</a> — the purple Deals button will automatically appear in the bottom corner!</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="guide-section">
+    <div class="guide-title">💻 How to setup on PC (Chrome, Edge, Brave, Firefox)</div>
+    <div class="guide-steps">
+      <div class="step-item">
+        <div class="step-num">1</div>
+        <div><strong>Option A (Userscript):</strong> Install <a href="https://violentmonkey.github.io/" target="_blank" style="color:var(--zepto-purple);font-weight:600;">Violentmonkey</a> or <a href="https://www.tampermonkey.net/" target="_blank" style="color:var(--zepto-purple);font-weight:600;">Tampermonkey</a>, then click the purple button above.</div>
+      </div>
+      <div class="step-item">
+        <div class="step-num">2</div>
+        <div><strong>Option B (Bookmark):</strong> Ensure your bookmarks bar is visible (<code>Ctrl+Shift+B</code> or <code>Cmd+Shift+B</code>), then drag the green <strong>⚡ Zepto Deals</strong> button into your bookmarks bar.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>View source code on GitHub: <a href="https://github.com/jairaj26/zepto-deals" target="_blank">jairaj26/zepto-deals</a></p>
+  </div>
+</div>
+
+<script>
+  const code = "javascript:(function(){const s=document.createElement('script');s.src='https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto-deals-bookmarklet.js?t='+Date.now();document.head.appendChild(s);})();";
+  const btn = document.getElementById('copy-btn');
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText(code).then(() => {
+      btn.innerHTML = '<span>✔ Copied to Clipboard!</span>';
+      btn.style.background = '#dcfce7';
+      btn.style.color = '#15803d';
+      setTimeout(() => {
+        btn.innerHTML = '<span>📋 Copy Code</span>';
+        btn.style.background = '';
+        btn.style.color = '';
+      }, 2500);
+    });
+  });
+</script>
+
+</body>
+</html>

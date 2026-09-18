@@ -1,150 +1,109 @@
 # ⚡ Zepto Deals Tracker & Product Sorter
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
-[![Node.js 20+](https://img.shields.io/badge/node-20%2B-blue.svg)](https://nodejs.org/)
-[![Playwright](https://img.shields.io/badge/Playwright-Headless-purple.svg)](https://playwright.dev/)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Userscript](https://img.shields.io/badge/Userscript-Tampermonkey%20%2F%20Violentmonkey-purple.svg)](https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto_deals.user.js)
+[![Bookmarklet](https://img.shields.io/badge/Bookmarklet-1--Click%20Drag-orange.svg)](https://jairaj26.github.io/zepto-deals/)
 
-An open-source toolkit to track, extract, sort, and get instant notifications for deep discount deals (**70%+ OFF**) on **Zepto**.
+An open-source toolkit to track, extract, filter, and sort deep discount deals (**50%+, 70%+ OFF**) on **Zepto** directly in your browser.
 
-This repository contains two complementary tools:
-1. **Interactive Browser Bookmarklet (`zepto-deals-bookmarklet.js`)**: Run directly in your browser on `zepto.com` to browse deals in a modern Zepto-style 5-column product grid with dropdown filters and CSV export.
-2. **Automated Alert Bot (`zepto-bot.js`)**: Runs hourly in GitHub Actions (100% free) or locally to scrape key grocery subcategories, automatically deduplicate deals with a **2-hour price suppression rule**, and send instant alerts to your **Telegram** or **Discord**.
+> 🌐 **1-Click Web Installer**: [https://jairaj26.github.io/zepto-deals/](https://jairaj26.github.io/zepto-deals/)  
+> Visit the portal to install the Userscript or drag the Bookmarklet to your bookmarks bar with a single click.
 
 ---
 
 ## 📑 Table of Contents
-- [Features](#-features)
-- [Tool 1: Interactive Browser Bookmarklet](#-tool-1-interactive-browser-bookmarklet)
-- [Tool 2: Automated Telegram / Discord Bot](#-tool-2-automated-telegram--discord-bot)
-  - [1. Fork the Repository](#1-fork-the-repository)
-  - [2. Configure GitHub Secrets](#2-configure-github-secrets)
-  - [3. Enable GitHub Actions Workflow](#3-enable-github-actions-workflow)
-- [Running Locally](#-running-locally)
-- [How 2-Hour Price Suppression Works](#-how-2-hour-price-suppression-works)
-- [Privacy & Security](#-privacy--security)
-- [License](#-license)
+- [Why Userscript / Bookmarklet?](#-why-userscript--bookmarklet)
+- [✨ Features](#-features)
+- [🚀 Method 1: Automatic Userscript (Recommended for PC & Mobile)](#-method-1-automatic-userscript-recommended-for-pc--mobile)
+  - [Setup on PC (Chrome, Edge, Brave, Firefox)](#setup-on-pc-chrome-edge-brave-firefox)
+  - [Setup on Android (Kiwi Browser or Firefox Mobile)](#setup-on-android-kiwi-browser-or-firefox-mobile)
+  - [Setup on iOS (Safari)](#setup-on-ios-safari)
+- [🔖 Method 2: Browser Bookmarklet](#-method-2-browser-bookmarklet)
+- [💻 Method 3: Browser Console](#-method-3-browser-console)
+- [🔒 Privacy & Security](#-privacy--security)
+- [📄 License](#-license)
+
+---
+
+## 💡 Why Userscript / Bookmarklet?
+
+Zepto's APIs are protected by strict AWS WAF Bot Control that aggressively challenges and blocks automated datacenter IPs (like GitHub Actions runners or cloud VPS). 
+
+By running **100% client-side** in your real browser (Desktop or Mobile):
+1. **Zero WAF Challenges**: You browse with your regular domestic internet connection and natural browser fingerprints, bypassing bot blocks seamlessly.
+2. **Instant & Always Up-to-Date**: Your selected delivery address, pincode, store ID, and session cookies are automatically used.
+3. **No Setup Hassle**: No Telegram bots, no API tokens, and no server maintenance required.
 
 ---
 
 ## ✨ Features
 
-- **🚀 Zero DOM Scraping**: Fetches deals directly via Zepto's Next.js RSC & BFF Gateway APIs for maximum speed and zero UI lag.
-- **🛍️ Zepto Grid UI**: Displays products in a 5-in-a-row responsive grid with product images, discount tags, MRP, selling price, and direct links to product pages.
-- **📦 Stock & Availability Detection**: Accurately flags Out-of-Stock (OOS) items with dimmed styling and modern badges.
-- **🔍 Powerful Dropdowns**: Filter deals on the fly by Subcategory, Minimum Discount (e.g. 50%+, 70%+), Stock Availability, and Sort Order (Discount High-to-Low, Price Low-to-High, etc.).
-- **⏱️ Smart 2-Hour Price Suppression**: The alert bot avoids notification spam by muting items that remain at the same price for 2+ consecutive checks within the same day, while immediately unmuting if the price drops further.
-- **🔒 Privacy First**: Zero personal credentials, tokens, or locations are hardcoded. All configurations use environment variables and GitHub Secrets.
+- **🚀 Zero DOM Scraping**: Directly fetches data via Zepto's Next.js RSC & BFF Gateway APIs for lightning-fast loading without slow UI scrolling.
+- **🛍️ Zepto-Style 5-Column Grid**: Beautiful, clean product grid showing product images, discount tags, MRP, selling price, and instant links to Zepto product pages.
+- **📦 Stock & Availability Detection**: Detects Out-of-Stock (OOS) items accurately and dims them with clear OOS badges.
+- **🔍 Real-Time Dropdown Filters**:
+  - Filter by Subcategory.
+  - Filter by Minimum Discount (e.g. 50%+, 60%+, 70%+ OFF).
+  - Filter by In-Stock only.
+  - Sort by Discount (High to Low) or Price (Low to High / High to Low).
+- **📥 CSV Export**: Export all filtered deals with product titles, discounts, and prices to a CSV file in 1 click.
+- **🛡️ Rate-Limit Safe**: Safely capped to 2 subcategories per category at a time to prevent API throttling.
 
 ---
 
-## 🌐 Tool 1: Interactive Browser Bookmarklet
+## 🚀 Method 1: Automatic Userscript (Recommended for PC & Mobile)
 
-The bookmarklet (`zepto-deals-bookmarklet.js`) runs client-side in your desktop browser while you are logged in or browsing `zepto.com`.
+The Userscript (`zepto_deals.user.js`) is the easiest and most seamless way to use the deal finder. Once installed, it **automatically runs in the background** whenever you open `zepto.com`. A stylish floating **⚡ Deals** button appears in the corner.
 
-### How to Use
+### Setup on PC (Chrome, Edge, Brave, Firefox)
+1. Install either [Violentmonkey](https://violentmonkey.github.io/) or [Tampermonkey](https://www.tampermonkey.net/) from your browser extension store.
+2. Click this direct install link:  
+   👉 **[Install Zepto Deals Userscript](https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto_deals.user.js)**
+3. Tampermonkey/Violentmonkey will prompt you — click **Install** / **Confirm Install**.
+4. Visit [zepto.com](https://www.zepto.com) — you will see a purple floating button in the bottom-right corner!
 
-#### Method A: Browser Console (Fastest)
-1. Open [zepto.com](https://www.zepto.com) in Chrome / Edge / Brave / Firefox.
-2. Ensure your delivery address/location is selected.
-3. Press `F12` (or `Ctrl+Shift+I` / `Cmd+Option+I`) to open Developer Tools and go to the **Console** tab.
-4. Copy the entire contents of [`zepto-deals-bookmarklet.js`](./zepto-deals-bookmarklet.js), paste into the console, and press **Enter**.
-5. The Zepto Deals drawer will appear on the right side of the screen.
+### Setup on Android (Kiwi Browser or Firefox Mobile)
+Standard mobile Chrome does not support extensions. However, Kiwi Browser and Firefox Mobile do:
+1. Install **[Kiwi Browser](https://play.google.com/store/apps/details?id=com.kiwibrowser.browser)** or **[Firefox](https://play.google.com/store/apps/details?id=org.mozilla.firefox)** from Google Play.
+2. In Kiwi/Firefox, open the Chrome Web Store or Firefox Add-ons and install **Violentmonkey** or **Tampermonkey**.
+3. Tap **[Install Zepto Deals Userscript](https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto_deals.user.js)** and confirm installation.
+4. Open [zepto.com](https://www.zepto.com). The floating button will appear on the page automatically!
 
-#### Method B: Browser Bookmark
-1. Create a new bookmark in your browser bookmarks bar (e.g. named `Zepto Deals`).
-2. Set the URL to the following loader:
+### Setup on iOS (Safari)
+1. Install the free **[Userscripts](https://apps.apple.com/app/userscripts/id1463298887)** or **[Stay](https://apps.apple.com/app/stay-for-safari/id1591620924)** extension from the App Store.
+2. Enable the extension in **Settings > Safari > Extensions**.
+3. Add `https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto_deals.user.js` to your scripts.
+4. Open [zepto.com](https://www.zepto.com) in Safari.
+
+---
+
+## 🔖 Method 2: Browser Bookmarklet
+
+If you prefer not to install extensions, you can use the bookmarklet on desktop:
+
+1. Make sure your bookmarks bar is visible (`Ctrl+Shift+B` or `Cmd+Shift+B`).
+2. Visit the [Web Installer Page](https://jairaj26.github.io/zepto-deals/) and **drag the green "⚡ Zepto Deals" button** into your bookmarks bar.
+3. *Alternatively*, create a new bookmark manually and set the URL to:
    ```javascript
    javascript:(function(){const s=document.createElement('script');s.src='https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto-deals-bookmarklet.js?t='+Date.now();document.head.appendChild(s);})();
    ```
-3. Whenever you are on [zepto.com](https://www.zepto.com), simply click your bookmark!
-
-> [!NOTE]
-> **Subcategory Cap**: To prevent triggering excessive API calls and rate-limits, you can select up to **2 subcategories per category** at a time.
+4. While on [zepto.com](https://www.zepto.com), simply click your bookmark!
 
 ---
 
-## 🤖 Tool 2: Automated Telegram / Discord Bot
+## 💻 Method 3: Browser Console
 
-The bot (`zepto-bot.js`) autonomously launches headless Chromium via Playwright to establish a fresh Zepto session, extracts deals across key staple subcategories (*Atta, Oil, Ghee, Dals & Pulses, Rice & More*), applies price deduplication, and sends alerts to Telegram or Discord.
-
-### 1. Fork the Repository
-Click the **Fork** button at the top right of this GitHub repository to create your own copy.
-
-### 2. Configure GitHub Secrets
-In your forked repository, navigate to **Settings** > **Secrets and variables** > **Actions**, and click **New repository secret** for each of the following:
-
-| Secret Name | Required? | Description | Example |
-|---|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | **Yes** (for Telegram) | Telegram Bot token obtained from [@BotFather](https://t.me/BotFather) | `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ` |
-| `TELEGRAM_CHAT_ID` | **Yes** (for Telegram) | Your Telegram Chat or Channel ID (from [@userinfobot](https://t.me/userinfobot)) | `987654321` |
-| `USER_LATITUDE` | Optional (Recommended) | Delivery location latitude (defaults to `12.9716`) | `12.9716` |
-| `USER_LONGITUDE` | Optional (Recommended) | Delivery location longitude (defaults to `77.5946`) | `77.5946` |
-| `ZEPTO_SESSION_HEADERS` | Optional | Direct session headers (Click **Copy Bot Headers** in the bookmarklet panel) | `{"request-signature": "...", ...}` |
-| `DISCORD_WEBHOOK_URL` | Optional | Discord Webhook URL for Discord notifications | `https://discord.com/api/webhooks/...` |
-
-> [!TIP]
-> **How to find your Latitude and Longitude**:
-> 1. Open [Google Maps](https://maps.google.com).
-> 2. Right-click on your delivery location.
-> 3. The first entry in the menu will be your coordinates (e.g. `12.9716, 77.5946`). The first number is Latitude and the second is Longitude.
-
-### 3. Enable GitHub Actions Workflow
-1. Go to the **Actions** tab in your repository.
-2. If prompted, click **I understand my workflows, go ahead and enable them**.
-3. Select **Zepto Deals Alert Bot** from the left sidebar.
-4. Click **Run workflow** > **Run workflow** to perform a manual test run.
-5. Once verified, the bot will run automatically at the top of every hour via the scheduled cron trigger (`0 * * * *`).
+1. Open [zepto.com](https://www.zepto.com) in your browser.
+2. Press `F12` (or right-click > **Inspect**) and navigate to the **Console** tab.
+3. Open [`zepto-deals-bookmarklet.js`](./zepto-deals-bookmarklet.js), copy the entire code, paste it into the console, and hit **Enter**.
 
 ---
 
-## 💻 Running Locally
+## 🔒 Privacy & Security
 
-You can also run the bot locally on your machine with Node.js:
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/jairaj26/zepto-deals.git
-   cd zepto-deals
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   npx playwright install chromium
-   ```
-
-3. **Configure environment variables**:
-   Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
-   Open `.env` and fill in your `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and your coordinates (`USER_LATITUDE`, `USER_LONGITUDE`).
-
-4. **Run the bot**:
-   ```bash
-   npm start
-   ```
-
-> [!NOTE]
-> If neither `TELEGRAM_BOT_TOKEN` nor `DISCORD_WEBHOOK_URL` is set in `.env`, the bot will automatically output all discovered deals directly to your console!
-
----
-
-## 🧠 How 2-Hour Price Suppression Works
-
-To prevent receiving repeated alerts for the same discounted product every single hour:
-1. **New Deal Found**: When a product enters the $\ge 70\%$ off threshold for the first time today, an alert is sent immediately, and recorded in `deals_state.json`.
-2. **Consecutive Identical Price**: If the same product remains at the exact same price during the next run (2nd consecutive hour), it is marked as `mutedForToday = true`. No further alerts will be sent for this item today.
-3. **Price Drops Further**: If the price drops even lower (e.g., from ₹100 to ₹70), the bot automatically un-mutes the product and sends a price-drop alert!
-4. **Daily State Reset**: At midnight (UTC / new calendar date), `deals_state.json` resets, ensuring you receive fresh notifications for the new day's deals.
-
----
-
-## 🛡️ Privacy & Security
-
-- **No Hardcoded Credentials**: No personal phone numbers, user IDs, addresses, or tokens are included in the repository.
-- **Safe Dynamic Capturing**: Sessions are established live via ephemeral headless browser contexts or user browser sessions.
-- **Clean Commit History**: Sensitive `.env` files and local files are excluded via `.gitignore`.
+- **100% Client-Side**: All requests occur directly between your browser and Zepto's official endpoints.
+- **Zero Data Collection**: No cookies, session headers, GPS coordinates, or personal info are logged or sent to any external server.
+- **Open Source**: Every line of code is completely transparent and viewable in this repository.
 
 ---
 
