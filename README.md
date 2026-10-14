@@ -39,6 +39,8 @@ By running **100% client-side** in your real browser (Desktop or Mobile):
 ## ✨ Features
 
 - **🚀 Zero DOM Scraping**: Directly fetches data via Zepto's Next.js RSC & BFF Gateway APIs for lightning-fast loading without slow UI scrolling.
+- **⚡ Blockbuster Deals Hub**: Pinned directly at the top of the drawer with 11 location-specific deal subcategories and dynamic live refresh.
+- **🔍 Direct Sidebar Product Search**: Search for any keyword (e.g. `sweets`, `oil`, `shampoo`) right from the drawer, fetching matching products sorted by discount.
 - **🛍️ Zepto-Style 5-Column Grid**: Beautiful, clean product grid showing product images, discount tags, MRP, selling price, and instant links to Zepto product pages.
 - **📦 Stock & Availability Detection**: Detects Out-of-Stock (OOS) items accurately and dims them with clear OOS badges.
 - **🔍 Real-Time Dropdown Filters**:

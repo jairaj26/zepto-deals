@@ -29,10 +29,40 @@
   const DEFAULT_LATITUDE = 12.9716; // Generic Central Bengaluru fallback
   const DEFAULT_LONGITUDE = 77.5946;
 
+  const BLOCKBUSTER_CATEGORY = {
+    name: 'Blockbuster Deals',
+    categoryId: '19c50c75-5341-4617-8519-686ecb46bba6',
+    subCategoryId: 'f09d83f6-d14b-4402-a12a-a01c7c8738d0',
+    slug: 'blockbuster-deals',
+    isSpecial: true
+  };
+
+  const BLOCKBUSTER_SUBCATEGORIES = [
+    { title: 'Top Picks', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'f09d83f6-d14b-4402-a12a-a01c7c8738d0' },
+    { title: 'Bath & Body', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '7441e990-4677-4c6d-82f8-3e82742575c8' },
+    { title: 'Fragrances', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '60d9be7b-d961-471f-a6ce-17f1d4e127c0' },
+    { title: 'Tea, Coffee & More', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '95a554df-77a5-40b7-b7ba-1a564f4426e9' },
+    { title: 'Skincare', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '3d9d232a-5ac2-4397-bd88-4083027fea9b' },
+    { title: 'Breakfast & Sauces', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'd77c4527-dc33-4026-b729-920cdd7cd2c6' },
+    { title: 'Protein & Nutrition', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'b8c3314a-3285-4cab-a06a-14dbe7b987fd' },
+    { title: 'Dairy, Bread & Eggs', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'a7b876e1-deec-457e-ba19-0b1902c9f2ce' },
+    { title: 'Biscuits', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '0333efaf-3c19-4683-a022-0439c827013e' },
+    { title: 'Cleaning Essentials', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'bf07d520-c29c-4033-9bf6-2cd35656a63b' },
+    { title: 'Masala, Dry Fruits & More', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'c06f9bcd-fade-465b-a0b9-ec06e367a948' }
+  ];
+
   let capturedHeaders = null;
   let capturedLocation = null;
   let fetchedProductsData = []; 
   let flatSelectionsData = [];
+  let currentSearchQuery = '';
+
+  function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
 
   // ================== Location Discovery ==================
   function extractLocationFromEnv() {
@@ -268,16 +298,48 @@
   }
 
   async function getCategories(forceRefresh) {
+    let categories = [];
     if (!forceRefresh) {
       const cached = cacheGet(CATEGORIES_KEY);
-      if (cached && isFresh(cached.cachedAt, CATEGORY_TTL_MS)) return cached.categories;
+      if (cached && isFresh(cached.cachedAt, CATEGORY_TTL_MS)) categories = cached.categories;
     }
-    const { categories } = await fetchAllCategoriesRaw();
-    cacheSet(CATEGORIES_KEY, { categories, cachedAt: Date.now() });
-    return categories;
+    if (!categories || categories.length === 0) {
+      const res = await fetchAllCategoriesRaw();
+      categories = res.categories || [];
+      cacheSet(CATEGORIES_KEY, { categories, cachedAt: Date.now() });
+    }
+    // Filter out any existing blockbuster deals from layout to avoid duplicates
+    const cleanList = categories.filter(c => 
+      c.categoryId !== BLOCKBUSTER_CATEGORY.categoryId && 
+      (c.name || '').toLowerCase() !== 'blockbuster deals'
+    );
+    // Pin Blockbuster Deals at the very top (index 0)
+    return [BLOCKBUSTER_CATEGORY, ...cleanList];
   }
 
   async function getSubcategories(category, forceRefresh) {
+    if (category.isSpecial || category.categoryId === BLOCKBUSTER_CATEGORY.categoryId) {
+      const key = SUBCATS_PREFIX + category.categoryId;
+      if (!forceRefresh) {
+        const cached = cacheGet(key);
+        // Location-sensitive: 1 hour cache TTL for blockbuster deals
+        if (cached && isFresh(cached.cachedAt, 60 * 60 * 1000)) return cached.tabs;
+      }
+      try {
+        const text = await fetchZeptoPage(`/cn/blockbuster-deals/top-picks/cid/${category.categoryId}/scid/${category.subCategoryId}`);
+        const tabs = extractJsonObjects(text, '{"activeIcon"')
+          .map(t => t.params ? { title: t.title, categoryId: t.params.category_id, subCategoryId: t.params.subcategory_id } : null)
+          .filter(Boolean);
+        if (tabs && tabs.length > 0) {
+          cacheSet(key, { tabs, cachedAt: Date.now() });
+          return tabs;
+        }
+      } catch (e) {
+        console.warn('[zdeals] Live blockbuster fetch failed, using pre-seeded subcategories:', e);
+      }
+      return BLOCKBUSTER_SUBCATEGORIES;
+    }
+
     const key = SUBCATS_PREFIX + category.categoryId;
     if (!forceRefresh) {
       const cached = cacheGet(key);
@@ -304,7 +366,7 @@
   }
 
   // Resilient recursive product extractor across all layout widgets with image & OOS parsing
-  function extractProductsFromWidgets(widgets, category, subcategory) {
+  function extractProductsFromWidgets(widgets, category, subcategory, requireDiscount = true) {
     const products = [];
     const seenPvid = new Set();
 
@@ -313,46 +375,54 @@
       for (const w of list) {
         if (!w) continue;
         
-        const items = (w.data && Array.isArray(w.data.items)) ? w.data.items : (w.data && Array.isArray(w.data.products) ? w.data.products : []);
+        const items = (w.data && Array.isArray(w.data.items)) ? w.data.items : 
+                      (w.data && Array.isArray(w.data.products) ? w.data.products : 
+                      (Array.isArray(w.items) ? w.items : 
+                      (Array.isArray(w.products) ? w.products : [])));
         
         for (const p of items) {
-          if (!p || !p.product) continue;
+          if (!p) continue;
+          const prod = p.product || (p.productResponse && p.productResponse.product) || (p.item && p.item.product) || p;
+          const variant = p.productVariant || (p.productResponse && p.productResponse.productVariant) || (p.item && p.item.productVariant) || p;
           
-          const pvid = (p.productVariant && p.productVariant.id) || p.id || p.product.id;
+          const pvid = (variant && variant.id) || p.id || (prod && prod.id);
           if (pvid && seenPvid.has(pvid)) continue;
           if (pvid) seenPvid.add(pvid);
 
           // Accurate Out-of-Stock check
           const isOutOfStock = Boolean(
             p.outOfStock || 
-            (p.productVariant && p.productVariant.outOfStock) || 
+            (variant && variant.outOfStock) || 
             p.isOutOfStock ||
-            (p.productVariant && p.productVariant.inventory && p.productVariant.inventory.quantity <= 0) ||
-            (p.productVariant && p.productVariant.quantity === 0) ||
+            (variant && variant.inventory && variant.inventory.quantity <= 0) ||
+            (variant && variant.quantity === 0) ||
             p.availableQuantity === 0 ||
-            (p.productVariant && p.productVariant.isActive === false) ||
+            (variant && variant.isActive === false) ||
             p.isActive === false
           );
 
-          const mrp = (p.mrp || 0) / 100;
-          const price = (p.discountedSellingPrice || p.sellingPrice || p.mrp || 0) / 100;
-          let discountPercent = p.discountPercent;
+          const mrp = (p.mrp || (variant && variant.mrp) || 0) / 100;
+          const price = (p.discountedSellingPrice || p.sellingPrice || (variant && variant.discountedSellingPrice) || (variant && variant.sellingPrice) || mrp || 0) / 100;
+          let discountPercent = p.discountPercent !== undefined ? p.discountPercent : (variant && variant.discountPercent);
           if ((discountPercent === undefined || discountPercent === null) && mrp > 0 && price > 0 && mrp > price) {
             discountPercent = Math.round(((mrp - price) / mrp) * 100);
           }
+          if (discountPercent === undefined || discountPercent === null || isNaN(discountPercent)) {
+            discountPercent = 0;
+          }
 
-          // We extract all items with a discount (including OOS items to display per user request)
-          if (discountPercent > 0) {
-            const productSlug = (p.product && p.product.slug) || slugify(p.product.name);
-            const variantId = (p.productVariant && p.productVariant.id) || '';
+          // In category browsing require discount > 0; in search include all matching items
+          if (!requireDiscount || discountPercent > 0) {
+            const productSlug = (prod && prod.slug) || slugify(prod && prod.name);
+            const variantId = (variant && variant.id) || '';
             const productUrl = variantId ? `https://www.zepto.com/pn/${productSlug}/pvid/${variantId}` : `https://www.zepto.com/pn/${productSlug}`;
 
             // Resolve Image URL
             let imgPath = '';
-            if (p.productVariant && Array.isArray(p.productVariant.images) && p.productVariant.images.length > 0) {
-              imgPath = p.productVariant.images[0].path || p.productVariant.images[0].name || '';
-            } else if (p.product && Array.isArray(p.product.images) && p.product.images.length > 0) {
-              imgPath = p.product.images[0].path || p.product.images[0].name || '';
+            if (variant && Array.isArray(variant.images) && variant.images.length > 0) {
+              imgPath = variant.images[0].path || variant.images[0].name || '';
+            } else if (prod && Array.isArray(prod.images) && prod.images.length > 0) {
+              imgPath = prod.images[0].path || prod.images[0].name || '';
             } else if (Array.isArray(p.images) && p.images.length > 0) {
               imgPath = p.images[0].path || p.images[0].url || '';
             } else if (p.image) {
@@ -370,14 +440,14 @@
             }
 
             products.push({
-              name: (p.product && p.product.name) || '',
-              brand: (p.product && p.product.brand) || '',
-              packSize: (p.productVariant && p.productVariant.formattedPacksize) || '',
+              name: (prod && prod.name) || (p && p.name) || '',
+              brand: (prod && prod.brand) || '',
+              packSize: (variant && variant.formattedPacksize) || (p && p.formattedPacksize) || '',
               mrp: mrp,
               price: price,
               discountPercent: discountPercent,
-              category: category.name,
-              subcategory: subcategory.title,
+              category: (category && category.name) || '',
+              subcategory: (subcategory && subcategory.title) || '',
               url: productUrl,
               imageUrl: imageUrl,
               isOutOfStock: isOutOfStock
@@ -427,7 +497,7 @@
       }
 
       const widgets = (data.pageLayout && data.pageLayout.widgets) || [];
-      products.push(...extractProductsFromWidgets(widgets, category, subcategory));
+      products.push(...extractProductsFromWidgets(widgets, category, subcategory, true));
 
       const endOfPage = data.pageLayout && data.pageLayout.endOfPage;
       const nextParams = data.pageLayout && data.pageLayout.nextPageParams;
@@ -452,6 +522,87 @@
     return all.sort((a, b) => b.discountPercent - a.discountPercent);
   }
 
+  // ================== Search API Service ==================
+  async function searchBff(query, pageNumber) {
+    const reqHeaders = Object.assign({}, capturedHeaders, { 
+      'content-type': 'application/json',
+      'accept': 'application/json, text/plain, */*'
+    });
+    const sessionId = (capturedHeaders && (capturedHeaders['session_id'] || capturedHeaders['sessionid'])) || generateUUID();
+    const body = {
+      query: query,
+      pageNumber: pageNumber,
+      intentId: generateUUID(),
+      mode: 'AUTOSUGGEST',
+      userSessionId: sessionId
+    };
+    const res = await fetch('https://bff-gateway.zepto.com/user-search-service/api/v3/search', {
+      method: 'POST',
+      headers: reqHeaders,
+      credentials: 'include',
+      mode: 'cors',
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error('Search HTTP ' + res.status);
+    return res.json();
+  }
+
+  const MAX_SEARCH_PAGES = 4;
+  async function getSearchResults(query, updateStatusFn) {
+    if (!capturedHeaders) {
+      throw new Error('[zdeals] no session headers captured — cannot search');
+    }
+    const products = [];
+    const category = { name: 'Search' };
+    const subcategory = { title: `"${query}"` };
+
+    for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
+      updateStatusFn(`Searching: "${query}" (Page ${page + 1})`);
+      if (page > 0) {
+        await new Promise(r => setTimeout(r, 400 + Math.random() * 500));
+      }
+
+      let data;
+      try {
+        data = await searchBff(query, page);
+      } catch (e) {
+        console.warn('[zdeals] search error on page ' + page, e);
+        break;
+      }
+
+      if (!data) break;
+
+      const widgets = (data.pageLayout && data.pageLayout.widgets) ||
+                      (data.layout && data.layout.widgets) ||
+                      (data.data && data.data.widgets) ||
+                      data.widgets || [];
+
+      const directItems = (data.data && Array.isArray(data.data.items)) ? data.data.items :
+                          (Array.isArray(data.items) ? data.items : 
+                          (data.data && Array.isArray(data.data.products) ? data.data.products : []));
+
+      if (directItems.length > 0) {
+        widgets.push({ data: { items: directItems } });
+      }
+
+      const extracted = extractProductsFromWidgets(widgets, category, subcategory, false);
+      if (extracted.length === 0 && widgets.length === 0) {
+        break;
+      }
+
+      products.push(...extracted);
+
+      if (data.endOfPage || (data.data && data.data.endOfPage) || (data.pageLayout && data.pageLayout.endOfPage)) {
+        break;
+      }
+      if (extracted.length < 4) {
+        break;
+      }
+    }
+
+    return products.sort((a, b) => b.discountPercent - a.discountPercent);
+  }
+
   // ================== Zepto Grid Results Rendering ==================
   function openResultsTab(title, products) {
     const subcats = Array.from(new Set(products.map(p => p.subcategory).filter(Boolean)));
@@ -473,7 +624,7 @@
         
         <div class="card-badges">
           ${p.isOutOfStock ? `<span class="badge-oos">OUT OF STOCK</span>` : `<span></span>`}
-          <span class="badge-discount">${p.discountPercent}% OFF</span>
+          ${p.discountPercent > 0 ? `<span class="badge-discount">${p.discountPercent}% OFF</span>` : `<span></span>`}
         </div>
 
         <a href="${escapeHtml(p.url || '#')}" target="_blank" rel="noopener noreferrer" class="card-image-wrap" title="View ${escapeHtml(p.name)} on Zepto">
@@ -1117,29 +1268,49 @@
   function injectStyles() {
     const style = document.createElement('style');
     style.textContent = `
-      #zdeals-fab { position: fixed; bottom: 32px; right: 32px; z-index: 999999; width: 54px; height: 54px; border-radius: 50%; border: 1px solid #e2e8f0; cursor: pointer; background: #ffffff; color: #4f46e5; font-size: 24px; box-shadow: 0 4px 14px rgba(0,0,0,0.1); transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; }
-      #zdeals-fab:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.14); border-color: #cbd5e1; }
-      #zdeals-panel { position: fixed; bottom: 100px; right: 32px; z-index: 999999; width: 360px; max-width: 90vw; max-height: 75vh; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 14px; display: none; flex-direction: column; overflow: hidden; }
+      #zdeals-fab { position: fixed; bottom: 32px; right: 32px; z-index: 999999; width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer; background: #5300f8; color: #ffffff; font-size: 24px; box-shadow: 0 6px 20px rgba(83, 0, 248, 0.42); transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; }
+      #zdeals-fab:hover { transform: scale(1.08) translateY(-2px); box-shadow: 0 8px 26px rgba(83, 0, 248, 0.55); background: #4300c7; }
+      #zdeals-panel { position: fixed; bottom: 100px; right: 32px; z-index: 999999; width: 360px; max-width: 90vw; max-height: 78vh; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 14px; display: none; flex-direction: column; overflow: hidden; }
       #zdeals-panel.open { display: flex; }
       #zdeals-panel * { box-sizing: border-box; }
-      #zdeals-panel .zd-header { padding: 16px 20px; font-weight: 600; color: #0f172a; background: #f8fafc; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
-      #zdeals-panel .zd-refresh { cursor: pointer; font-size: 12px; color: #64748b; font-weight: 500; padding: 4px 10px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff; transition: all 0.2s; }
-      #zdeals-panel .zd-refresh:hover { background: #f1f5f9; color: #0f172a; }
+      #zdeals-panel .zd-header { padding: 15px 18px; font-weight: 700; color: #0f172a; background: #f8fafc; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+      #zdeals-panel .zd-refresh { cursor: pointer; font-size: 11.5px; color: #64748b; font-weight: 600; padding: 4px 9px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff; transition: all 0.2s; }
+      #zdeals-panel .zd-refresh:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
+      
+      /* Search bar */
+      #zdeals-panel .zd-search-bar { padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 8px; align-items: center; }
+      #zdeals-panel .zd-search-wrap { position: relative; flex: 1; display: flex; align-items: center; }
+      #zdeals-panel .zd-search-wrap svg { position: absolute; left: 10px; pointer-events: none; color: #94a3b8; }
+      #zdeals-panel #zdeals-search-input { width: 100%; padding: 8px 28px 8px 32px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff; color: #0f172a; transition: all 0.2s ease; }
+      #zdeals-panel #zdeals-search-input:focus { border-color: #5300f8; box-shadow: 0 0 0 3px rgba(83, 0, 248, 0.12); }
+      #zdeals-panel #zdeals-search-clear { position: absolute; right: 8px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 13px; padding: 2px 4px; line-height: 1; }
+      #zdeals-panel #zdeals-search-clear:hover { color: #475569; }
+      #zdeals-panel #zdeals-search-btn { padding: 8px 13px; background: #5300f8; color: #ffffff; border: none; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background 0.15s ease; white-space: nowrap; }
+      #zdeals-panel #zdeals-search-btn:hover { background: #4300c7; }
+      #zdeals-panel #zdeals-search-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+
       #zdeals-body { overflow-y: auto; flex: 1; background: #ffffff; }
-      #zdeals-panel .zd-cat { padding: 12px 20px; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; font-weight: 500; color: #334155; transition: background 0.15s; }
+      #zdeals-panel .zd-cat { padding: 12px 18px; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; font-weight: 500; color: #334155; transition: background 0.15s; }
       #zdeals-panel .zd-cat:hover { background: #f8fafc; }
       #zdeals-panel .zd-cat .zd-chevron { transition: transform 0.2s ease; color: #94a3b8; font-size: 11px; }
       #zdeals-panel .zd-cat.expanded .zd-chevron { transform: rotate(90deg); }
+      
+      /* Special Blockbuster Deals category style */
+      #zdeals-panel .zd-cat.zd-special { background: #f5f3ff; color: #5300f8; font-weight: 700; border-bottom: 1px solid #ede9fe; }
+      #zdeals-panel .zd-cat.zd-special:hover { background: #ede9fe; }
+      #zdeals-panel .zd-cat.zd-special .zd-chevron { color: #5300f8; }
+      .zd-special-tag { font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em; background: #ede9fe; color: #5300f8; padding: 2px 6px; border-radius: 9999px; text-transform: uppercase; }
+
       #zdeals-panel .zd-subcat-list { background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
-      #zdeals-panel .zd-subcat { padding: 10px 20px 10px 32px; display: flex; align-items: center; gap: 12px; cursor: pointer; color: #475569; font-size: 13.5px; transition: background 0.15s; }
+      #zdeals-panel .zd-subcat { padding: 10px 18px 10px 30px; display: flex; align-items: center; gap: 12px; cursor: pointer; color: #475569; font-size: 13.5px; transition: background 0.15s; }
       #zdeals-panel .zd-subcat:hover { background: #f1f5f9; color: #0f172a; }
-      #zdeals-panel .zd-subcat input[type=checkbox] { width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer; flex-shrink: 0; margin: 0; border: 1px solid #cbd5e1; border-radius: 4px; }
+      #zdeals-panel .zd-subcat input[type=checkbox] { width: 16px; height: 16px; accent-color: #5300f8; cursor: pointer; flex-shrink: 0; margin: 0; border: 1px solid #cbd5e1; border-radius: 4px; }
       #zdeals-panel .zd-subcat.disabled { opacity: 0.5; cursor: not-allowed; }
       #zdeals-panel .zd-loading { padding: 18px 20px; color: #64748b; font-size: 13.5px; text-align: center; }
-      #zdeals-footer { padding: 16px 20px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
-      #zdeals-fetch-btn { width: 100%; padding: 12px; border: none; border-radius: 8px; background: #6366f1; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+      #zdeals-footer { padding: 14px 18px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+      #zdeals-fetch-btn { width: 100%; padding: 12px; border: none; border-radius: 8px; background: #5300f8; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
       #zdeals-fetch-btn:disabled { background: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
-      #zdeals-fetch-btn:not(:disabled):hover { background: #4f46e5; }
+      #zdeals-fetch-btn:not(:disabled):hover { background: #4300c7; }
       #zdeals-fetch-btn[data-state="ready"] { background: #10b981; }
       #zdeals-fetch-btn[data-state="ready"]:hover { background: #059669; }
       @media (max-width: 480px) { #zdeals-panel { right: 16px; left: 16px; width: auto; bottom: 90px; } #zdeals-fab { right: 16px; bottom: 16px; } }
@@ -1161,6 +1332,16 @@
   }
 
   function toggleSelection(category, subcategory, checked) {
+    const btn = document.getElementById('zdeals-fetch-btn');
+    if (btn) btn.dataset.mode = 'category';
+    const searchInput = document.getElementById('zdeals-search-input');
+    const searchClear = document.getElementById('zdeals-search-clear');
+    if (searchInput && searchInput.value) {
+      searchInput.value = '';
+      if (searchClear) searchClear.style.display = 'none';
+      currentSearchQuery = '';
+    }
+
     if (checked) {
       if (!selections.has(category.categoryId)) selections.set(category.categoryId, { category, subcats: new Map() });
       selections.get(category.categoryId).subcats.set(subcategory.subCategoryId, subcategory);
@@ -1184,13 +1365,107 @@
 
   function buildPanel() {
     const fab = document.createElement('button');
-    fab.id = 'zdeals-fab'; fab.innerHTML = '<svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>';
+    fab.id = 'zdeals-fab'; 
+    fab.setAttribute('title', 'Open Zepto Deals & Search');
+    fab.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>';
     document.body.appendChild(fab);
 
     const panel = document.createElement('div');
     panel.id = 'zdeals-panel';
-    panel.innerHTML = '<div class="zd-header"><span>Zepto Deals</span><div style="display:flex;gap:6px;"><button class="zd-refresh" id="zdeals-copy-headers" title="Copy signed headers & cookies for GitHub Actions bot">Copy Bot Headers</button><button class="zd-refresh" id="zdeals-refresh">Reset</button></div></div><div id="zdeals-body"></div><div id="zdeals-footer"><button id="zdeals-fetch-btn" disabled>Select subcategories</button></div>';
+    panel.innerHTML = `
+      <div class="zd-header">
+        <span>Zepto Deals</span>
+        <div style="display:flex;gap:6px;">
+          <button class="zd-refresh" id="zdeals-copy-headers" title="Copy signed headers & cookies for GitHub Actions bot">Copy Bot Headers</button>
+          <button class="zd-refresh" id="zdeals-refresh">Reset</button>
+        </div>
+      </div>
+      <div class="zd-search-bar">
+        <div class="zd-search-wrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="zdeals-search-input" placeholder="Search products (e.g. sweets, oil)..." />
+          <button id="zdeals-search-clear" style="display:none;" title="Clear">✕</button>
+        </div>
+        <button id="zdeals-search-btn">Search</button>
+      </div>
+      <div id="zdeals-body"></div>
+      <div id="zdeals-footer">
+        <button id="zdeals-fetch-btn" disabled>Select subcategories</button>
+      </div>
+    `;
     document.body.appendChild(panel);
+
+    const searchInput = document.getElementById('zdeals-search-input');
+    const searchBtn = document.getElementById('zdeals-search-btn');
+    const searchClear = document.getElementById('zdeals-search-clear');
+    const fetchBtn = document.getElementById('zdeals-fetch-btn');
+
+    searchInput.addEventListener('input', () => {
+      searchClear.style.display = searchInput.value.trim() ? 'block' : 'none';
+    });
+
+    searchClear.addEventListener('click', (e) => {
+      e.stopPropagation();
+      searchInput.value = '';
+      searchClear.style.display = 'none';
+      currentSearchQuery = '';
+      resetFetchButton();
+    });
+
+    async function triggerSearch() {
+      const q = (searchInput.value || '').trim();
+      if (!q) return;
+
+      // Deselect any category selections
+      selections.clear();
+      document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
+        row.classList.remove('disabled');
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) { cb.checked = false; cb.disabled = false; }
+      });
+
+      searchBtn.disabled = true;
+      searchInput.disabled = true;
+      fetchBtn.disabled = true;
+
+      const updateStatus = (msg) => { fetchBtn.textContent = msg; };
+
+      try {
+        if (!capturedHeaders) {
+          await ensureSessionAtStart(updateStatus);
+        }
+        fetchedProductsData = await getSearchResults(q, updateStatus);
+        currentSearchQuery = q;
+        flatSelectionsData = [];
+
+        fetchBtn.dataset.state = 'ready';
+        fetchBtn.dataset.mode = 'search';
+        fetchBtn.textContent = `View Results (${fetchedProductsData.length} items for "${q}")`;
+        fetchBtn.disabled = false;
+      } catch (err) {
+        console.error('[zdeals]', err);
+        fetchBtn.textContent = 'Search failed. Please retry.';
+        setTimeout(resetFetchButton, 2500);
+      } finally {
+        searchBtn.disabled = false;
+        searchInput.disabled = false;
+      }
+    }
+
+    searchBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      triggerSearch();
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        triggerSearch();
+      }
+    });
 
     fab.addEventListener('click', async () => {
       panel.classList.toggle('open');
@@ -1208,6 +1483,9 @@
     document.getElementById('zdeals-refresh').addEventListener('click', async (e) => {
       e.stopPropagation();
       selections.clear();
+      searchInput.value = '';
+      searchClear.style.display = 'none';
+      currentSearchQuery = '';
       resetFetchButton();
       await loadCategoryList(true);
     });
@@ -1237,17 +1515,21 @@
       });
     });
 
-    const fetchBtn = document.getElementById('zdeals-fetch-btn');
     fetchBtn.addEventListener('click', async () => {
       
       // STEP 2: Data is ready, open tab synchronously without popup blocker interference
       if (fetchBtn.dataset.state === 'ready') {
-        const title = flatSelectionsData.length === 1 ? `${flatSelectionsData[0].category.name} — ${flatSelectionsData[0].subcategory.title}` : `Zepto Deals (${flatSelectionsData.length} subcategories)`;
-        openResultsTab(title, fetchedProductsData);
+        if (fetchBtn.dataset.mode === 'search') {
+          openResultsTab(`Search: "${currentSearchQuery}"`, fetchedProductsData);
+        } else {
+          const title = flatSelectionsData.length === 1 ? `${flatSelectionsData[0].category.name} — ${flatSelectionsData[0].subcategory.title}` : `Zepto Deals (${flatSelectionsData.length} subcategories)`;
+          openResultsTab(title, fetchedProductsData);
+        }
         return;
       }
 
-      // STEP 1: The user clicked Fetch. Run the async pagination loops.
+      // STEP 1: The user clicked Fetch for category selections.
+      fetchBtn.dataset.mode = 'category';
       const flat = [];
       selections.forEach(entry => entry.subcats.forEach(subcategory => flat.push({ category: entry.category, subcategory })));
       if (flat.length === 0) return;
@@ -1289,7 +1571,15 @@
       body.innerHTML = '';
       categories.forEach(cat => {
         const row = document.createElement('div');
-        row.className = 'zd-cat'; row.innerHTML = `<span>${escapeHtml(cat.name)}</span><span class="zd-chevron">▶</span>`;
+        const isSpecial = Boolean(cat.isSpecial || cat.categoryId === BLOCKBUSTER_CATEGORY.categoryId);
+        row.className = 'zd-cat' + (isSpecial ? ' zd-special' : '');
+        row.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span>${escapeHtml(cat.name)}</span>
+            ${isSpecial ? '<span class="zd-special-tag">DEALS</span>' : ''}
+          </div>
+          <span class="zd-chevron">▶</span>
+        `;
         let expanded = false, subListEl = null;
 
         row.addEventListener('click', async () => {
