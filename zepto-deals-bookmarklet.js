@@ -426,7 +426,7 @@
             } else if (Array.isArray(p.images) && p.images.length > 0) {
               imgPath = p.images[0].path || p.images[0].url || '';
             } else if (p.image) {
-              imgPath = typeof p.image === 'string' ? p.image : (p.image.path || '');
+              imgPath = typeof p.image === 'string' ? p.image : (p.image.path || p.image.url || '');
             }
 
             let imageUrl = '';
@@ -435,7 +435,15 @@
                 imageUrl = imgPath;
               } else {
                 const cleanPath = imgPath.startsWith('/') ? imgPath.slice(1) : imgPath;
-                imageUrl = `https://cdn.zeptonow.com/production/ik-seo/tr:w-360,f-auto,q-70/${cleanPath}`;
+                if (cleanPath.startsWith('production/')) {
+                  imageUrl = `https://cdn.zeptonow.com/${cleanPath}`;
+                } else if (cleanPath.startsWith('cms/')) {
+                  imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/${cleanPath}`;
+                } else if (!cleanPath.includes('/')) {
+                  imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/cms/product_variant/${cleanPath}`;
+                } else {
+                  imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/${cleanPath}`;
+                }
               }
             }
 
@@ -628,11 +636,11 @@
         </div>
 
         <a href="${escapeHtml(p.url || '#')}" target="_blank" rel="noopener noreferrer" class="card-image-wrap" title="View ${escapeHtml(p.name)} on Zepto">
-          <img src="${p.imageUrl || 'https://cdn.zeptonow.com/web-static-assets-prod/artifacts/16.25.0/favicon.png'}" 
+          <img src="${p.imageUrl || 'https://cdn.zeptonow.com/web-static-assets-prod/artifacts/17.3.0/favicon.png'}" 
                alt="${escapeHtml(p.name)}" 
                class="prod-img" 
                loading="lazy" 
-               onerror="this.onerror=null;this.src='https://cdn.zeptonow.com/web-static-assets-prod/artifacts/16.25.0/favicon.png';this.style.objectFit='contain';">
+               onerror="this.onerror=null;this.src='https://cdn.zeptonow.com/web-static-assets-prod/artifacts/17.3.0/favicon.png';this.style.objectFit='contain';">
         </a>
 
         <div class="card-body">
@@ -655,10 +663,6 @@
             ${(p.mrp > p.price) ? `<div class="save-badge">Save ₹${(p.mrp - p.price).toFixed(2)}</div>` : ''}
           </div>
         </div>
-
-        <a href="${escapeHtml(p.url || '#')}" target="_blank" rel="noopener noreferrer" class="card-btn ${p.isOutOfStock ? 'btn-oos' : ''}">
-          ${p.isOutOfStock ? 'Out of Stock ↗' : 'View on Zepto ↗'}
-        </a>
       </div>
     `).join('');
 
@@ -785,18 +789,18 @@
   .product-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 14px;
+    border-radius: 12px;
     padding: 12px;
     display: flex;
     flex-direction: column;
     position: relative;
     cursor: pointer;
-    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
   }
   .product-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 22px -4px rgba(15, 23, 42, 0.08);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
     border-color: #cbd5e1;
   }
 
@@ -870,10 +874,6 @@
     object-fit: contain;
     margin: auto;
     display: block;
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .product-card:hover .prod-img {
-    transform: scale(1.06);
   }
 
   /* Card Body */
@@ -941,7 +941,7 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    margin-bottom: 10px;
+    margin-bottom: 0;
   }
   .price-main {
     display: flex;
@@ -968,36 +968,6 @@
     background: #dcfce7;
     padding: 2px 6px;
     border-radius: 5px;
-  }
-
-  /* Action CTA */
-  .card-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    text-decoration: none;
-    transition: all 0.15s;
-    background: #f1f5f9;
-    color: #1e293b;
-    border: 1px solid #e2e8f0;
-  }
-  .card-btn:hover {
-    background: #0c831f;
-    color: #ffffff;
-    border-color: #0c831f;
-  }
-  .card-btn.btn-oos {
-    background: #fef2f2;
-    color: #b91c1c;
-    border-color: #fecaca;
-  }
-  .card-btn.btn-oos:hover {
-    background: #fee2e2;
-    color: #991b1b;
   }
 
   /* Empty state */
@@ -1445,6 +1415,9 @@
         fetchBtn.dataset.mode = 'search';
         fetchBtn.textContent = `View Results (${fetchedProductsData.length} items for "${q}")`;
         fetchBtn.disabled = false;
+
+        // Auto-open grid tab
+        openResultsTab(`Search: "${q}"`, fetchedProductsData);
       } catch (err) {
         console.error('[zdeals]', err);
         fetchBtn.textContent = 'Search failed. Please retry.';
@@ -1555,6 +1528,10 @@
         fetchBtn.dataset.state = 'ready';
         fetchBtn.textContent = `View Results (${fetchedProductsData.length} deals)`;
         fetchBtn.disabled = false;
+
+        // Auto-open grid tab
+        const title = flat.length === 1 ? `${flat[0].category.name} — ${flat[0].subcategory.title}` : `Zepto Deals (${flat.length} subcategories)`;
+        openResultsTab(title, fetchedProductsData);
       } catch (err) {
         console.error('[zdeals]', err);
         fetchBtn.textContent = 'Error. Please retry.';
