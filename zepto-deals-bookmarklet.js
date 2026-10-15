@@ -64,6 +64,95 @@
     });
   }
 
+  // ================== Cryptographic Request Signing & Environment Helpers ==================
+  async function sha256Hex(str) {
+    const buffer = new TextEncoder().encode(str);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function getCookie(name) {
+    try {
+      const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name.replace(/[-[\]{}()*+?.,\\^$|#\\s]/g, '\\$&') + '=([^;]*)'));
+      return match ? decodeURIComponent(match[1]) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function getHeadersFromEnv() {
+    const xsrf = getCookie('XSRF-TOKEN');
+    const csrf = getCookie('csrfSecret');
+    const storeId = getCookie('store_id');
+    const sessionId = getCookie('session_id') || generateUUID();
+    const deviceId = getCookie('unique_browser_id') || generateUUID();
+
+    const headers = {
+      'accept': 'application/json, text/plain, */*',
+      'app_sub_platform': 'WEB',
+      'app_version': '17.3.1',
+      'appversion': '17.3.1',
+      'auth_from_cookie': 'true',
+      'auth_revamp_flow': 'v2',
+      'marketplace_type': 'SUPER_SAVER',
+      'platform': 'WEB',
+      'source': 'DIRECT',
+      'tenant': 'ZEPTO',
+      'device_id': deviceId,
+      'deviceid': deviceId,
+      'session_id': sessionId,
+      'sessionid': sessionId
+    };
+    if (storeId) {
+      headers['store_id'] = storeId;
+      headers['storeid'] = storeId;
+      headers['store_ids'] = storeId;
+    }
+    if (xsrf) headers['x-xsrf-token'] = xsrf;
+    if (csrf) headers['x-csrf-secret'] = csrf;
+    return headers;
+  }
+
+  async function generateSignedHeaders(method, urlPath, bodyStr) {
+    const baseHeaders = capturedHeaders || getHeadersFromEnv();
+    const reqId = generateUUID();
+    const deviceId = (baseHeaders && (baseHeaders['device_id'] || baseHeaders['deviceid'])) || getCookie('unique_browser_id') || generateUUID();
+    const xsrfToken = (baseHeaders && baseHeaders['x-xsrf-token']) || getCookie('XSRF-TOKEN') || '';
+    const csrfSecret = (baseHeaders && baseHeaders['x-csrf-secret']) || getCookie('csrfSecret') || '';
+
+    // Exact Zepto BFF gateway signing algorithm:
+    // Keys sorted alphabetically: body, deviceId, method, requestId, secret, url
+    // Joined by "|" and SHA-256 hashed. x-timezone is SHA-256 of the request-signature.
+    const params = {
+      body: typeof bodyStr === 'string' ? bodyStr : (bodyStr ? JSON.stringify(bodyStr) : ''),
+      deviceId: deviceId,
+      method: method.toLowerCase(),
+      requestId: reqId,
+      secret: xsrfToken,
+      url: urlPath
+    };
+    const paramStr = Object.keys(params).sort().reduce((acc, k, idx) => acc + (idx === 0 ? '' : '|') + params[k], '');
+    const signature = await sha256Hex(paramStr);
+    const timezone = await sha256Hex(signature);
+
+    const headers = Object.assign({}, baseHeaders, {
+      'content-type': 'application/json',
+      'accept': 'application/json, text/plain, */*',
+      'device_id': deviceId,
+      'deviceid': deviceId,
+      'x-xsrf-token': xsrfToken,
+      'x-csrf-secret': csrfSecret,
+      'request-signature': signature,
+      'x-timezone': timezone,
+      'request_id': reqId,
+      'requestid': reqId,
+      'requestId': reqId
+    });
+
+    return headers;
+  }
+
   // ================== Location Discovery ==================
   function extractLocationFromEnv() {
     if (capturedLocation) return;
@@ -110,11 +199,8 @@
     if (window.__zdealsOmniPatched) return;
     window.__zdealsOmniPatched = true;
 
-    let captured = false;
-
     const origFetch = window.fetch;
     window.fetch = function(input, init) {
-      if (captured) return origFetch.apply(this, arguments);
       try {
         let url = typeof input === 'string' ? input : (input && input.url) || '';
         if (url.includes('bff-gateway.zepto.com')) {
@@ -125,9 +211,8 @@
             else if (Array.isArray(init.headers)) init.headers.forEach(([k, v]) => headers[k.toLowerCase()] = v);
             else Object.keys(init.headers).forEach(k => headers[k.toLowerCase()] = init.headers[k]);
           }
-          if (headers['request-signature'] || headers['x-csrf-secret']) {
-            capturedHeaders = headers;
-            captured = true;
+          if (headers['request-signature'] || headers['x-csrf-secret'] || headers['x-xsrf-token']) {
+            capturedHeaders = Object.assign({}, capturedHeaders || {}, headers);
             extractLocFromBody(init ? init.body : null);
           }
         }
@@ -148,10 +233,9 @@
       return origSetHeader.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function(body) {
-      if (!captured && this._zUrl && this._zUrl.includes('bff-gateway.zepto.com')) {
-        if (this._zHeaders['request-signature'] || this._zHeaders['x-csrf-secret']) {
-          capturedHeaders = this._zHeaders;
-          captured = true;
+      if (this._zUrl && this._zUrl.includes('bff-gateway.zepto.com')) {
+        if (this._zHeaders['request-signature'] || this._zHeaders['x-csrf-secret'] || this._zHeaders['x-xsrf-token']) {
+          capturedHeaders = Object.assign({}, capturedHeaders || {}, this._zHeaders);
           extractLocFromBody(body);
         }
       }
@@ -204,12 +288,12 @@
     return new Promise(resolve => {
       const start = Date.now();
       const timer = setInterval(() => {
-        if (capturedHeaders) {
+        if (capturedHeaders || (getCookie('store_id') && getCookie('XSRF-TOKEN'))) {
           clearInterval(timer);
           resolve(true);
         } else if (Date.now() - start > timeoutMs) {
           clearInterval(timer);
-          resolve(false);
+          resolve(Boolean(capturedHeaders || getCookie('XSRF-TOKEN')));
         }
       }, 100);
     });
@@ -356,10 +440,12 @@
   }
 
   async function fetchBffPage(body) {
-    const reqHeaders = Object.assign({}, capturedHeaders, { 'content-type': 'application/json' });
-    const res = await fetch('https://bff-gateway.zepto.com/lms/api/v2/get_page', {
+    const urlPath = '/lms/api/v2/get_page';
+    const bodyStr = JSON.stringify(body);
+    const reqHeaders = await generateSignedHeaders('POST', urlPath, bodyStr);
+    const res = await fetch('https://bff-gateway.zepto.com' + urlPath, {
       method: 'POST', headers: reqHeaders, credentials: 'include', mode: 'cors',
-      body: JSON.stringify(body)
+      body: bodyStr
     });
     if (!res.ok) throw new Error('BFF HTTP ' + res.status);
     return res.json();
@@ -473,7 +559,7 @@
   }
 
   async function getDeals(category, subcategory, updateStatusFn) {
-    if (!capturedHeaders) {
+    if (!capturedHeaders && !getCookie('store_id') && !getCookie('XSRF-TOKEN')) {
       throw new Error('[zdeals] no session headers captured — cannot fetch deals');
     }
 
@@ -532,11 +618,8 @@
 
   // ================== Search API Service ==================
   async function searchBff(query, pageNumber) {
-    const reqHeaders = Object.assign({}, capturedHeaders, { 
-      'content-type': 'application/json',
-      'accept': 'application/json, text/plain, */*'
-    });
-    const sessionId = (capturedHeaders && (capturedHeaders['session_id'] || capturedHeaders['sessionid'])) || generateUUID();
+    const urlPath = '/user-search-service/api/v3/search';
+    const sessionId = (capturedHeaders && (capturedHeaders['session_id'] || capturedHeaders['sessionid'])) || getCookie('session_id') || generateUUID();
     const body = {
       query: query,
       pageNumber: pageNumber,
@@ -544,12 +627,15 @@
       mode: 'AUTOSUGGEST',
       userSessionId: sessionId
     };
-    const res = await fetch('https://bff-gateway.zepto.com/user-search-service/api/v3/search', {
+    const bodyStr = JSON.stringify(body);
+    const reqHeaders = await generateSignedHeaders('POST', urlPath, bodyStr);
+
+    const res = await fetch('https://bff-gateway.zepto.com' + urlPath, {
       method: 'POST',
       headers: reqHeaders,
       credentials: 'include',
       mode: 'cors',
-      body: JSON.stringify(body)
+      body: bodyStr
     });
     if (!res.ok) throw new Error('Search HTTP ' + res.status);
     return res.json();
@@ -557,7 +643,7 @@
 
   const MAX_SEARCH_PAGES = 4;
   async function getSearchResults(query, updateStatusFn) {
-    if (!capturedHeaders) {
+    if (!capturedHeaders && !getCookie('store_id') && !getCookie('XSRF-TOKEN')) {
       throw new Error('[zdeals] no session headers captured — cannot search');
     }
     const products = [];
