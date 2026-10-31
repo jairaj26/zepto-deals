@@ -91,8 +91,8 @@
     const headers = {
       'accept': 'application/json, text/plain, */*',
       'app_sub_platform': 'WEB',
-      'app_version': '17.3.1',
-      'appversion': '17.3.1',
+      'app_version': '17.6.0',
+      'appversion': '17.6.0',
       'auth_from_cookie': 'true',
       'auth_revamp_flow': 'v2',
       'marketplace_type': 'SUPER_SAVER',
@@ -102,7 +102,8 @@
       'device_id': deviceId,
       'deviceid': deviceId,
       'session_id': sessionId,
-      'sessionid': sessionId
+      'sessionid': sessionId,
+      'x-without-bearer': 'true'
     };
     if (storeId) {
       headers['store_id'] = storeId;
@@ -139,6 +140,8 @@
     const headers = Object.assign({}, baseHeaders, {
       'content-type': 'application/json',
       'accept': 'application/json, text/plain, */*',
+      'app_version': (baseHeaders && baseHeaders['app_version']) || '17.6.0',
+      'appversion': (baseHeaders && baseHeaders['appversion']) || '17.6.0',
       'device_id': deviceId,
       'deviceid': deviceId,
       'x-xsrf-token': xsrfToken,
@@ -149,6 +152,10 @@
       'requestid': reqId,
       'requestId': reqId
     });
+
+    if (!headers['authorization'] && !headers['Authorization']) {
+      headers['x-without-bearer'] = 'true';
+    }
 
     return headers;
   }
@@ -641,56 +648,128 @@
     return res.json();
   }
 
-  const MAX_SEARCH_PAGES = 4;
-  async function getSearchResults(query, updateStatusFn) {
-    if (!capturedHeaders && !getCookie('store_id') && !getCookie('XSRF-TOKEN')) {
-      throw new Error('[zdeals] no session headers captured — cannot search');
-    }
-    const products = [];
+  // RSC-based Search Fallback (Zero auth, same-origin, bypasses BFF signature verification)
+  async function searchRsc(query) {
+    const url = '/search?query=' + encodeURIComponent(query);
+    const text = await fetchZeptoPage(url);
     const category = { name: 'Search' };
     const subcategory = { title: `"${query}"` };
 
-    for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
-      updateStatusFn(`Searching: "${query}" (Page ${page + 1})`);
-      if (page > 0) {
-        await new Promise(r => setTimeout(r, 400 + Math.random() * 500));
-      }
+    let widgets = [];
 
-      let data;
+    // 1. Check for pageLayout widgets
+    const pageLayouts = extractJsonObjects(text, '{"pageLayout"');
+    for (const pl of pageLayouts) {
+      if (pl.pageLayout && Array.isArray(pl.pageLayout.widgets)) {
+        widgets.push(...pl.pageLayout.widgets);
+      }
+    }
+
+    // 2. Check for layout widgets
+    if (widgets.length === 0) {
+      const layouts = extractJsonObjects(text, '{"layout"');
+      for (const l of layouts) {
+        if (l.layout && Array.isArray(l.layout.widgets)) {
+          widgets.push(...l.layout.widgets);
+        }
+      }
+    }
+
+    // 3. Check for generic widgets list
+    if (widgets.length === 0) {
+      const widgetLists = extractJsonObjects(text, '{"widgets"');
+      for (const wl of widgetLists) {
+        if (Array.isArray(wl.widgets)) {
+          widgets.push(...wl.widgets);
+        }
+      }
+    }
+
+    // 4. Check for direct product items in RSC stream
+    const directResponses = extractJsonObjects(text, '{"productResponse"');
+    if (directResponses.length > 0) {
+      widgets.push({ data: { items: directResponses } });
+    }
+
+    const directVariants = extractJsonObjects(text, '{"productVariant"');
+    if (directVariants.length > 0) {
+      widgets.push({ data: { items: directVariants } });
+    }
+
+    return extractProductsFromWidgets(widgets, category, subcategory, false);
+  }
+
+  const MAX_SEARCH_PAGES = 4;
+  async function getSearchResults(query, updateStatusFn) {
+    const products = [];
+    const category = { name: 'Search' };
+    const subcategory = { title: `"${query}"` };
+    let bffFailed = false;
+
+    // Check if session headers are present for BFF search; if missing, fall back to RSC directly
+    const hasBffHeaders = Boolean(capturedHeaders || getCookie('XSRF-TOKEN') || getCookie('store_id'));
+
+    if (hasBffHeaders) {
+      for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
+        updateStatusFn(`Searching: "${query}" (Page ${page + 1})`);
+        if (page > 0) {
+          await new Promise(r => setTimeout(r, 400 + Math.random() * 500));
+        }
+
+        let data;
+        try {
+          data = await searchBff(query, page);
+        } catch (e) {
+          console.warn(`[zdeals] BFF search failed on page ${page}:`, e);
+          if (page === 0) {
+            bffFailed = true;
+          }
+          break;
+        }
+
+        if (!data) break;
+
+        const widgets = (data.pageLayout && data.pageLayout.widgets) ||
+                        (data.layout && data.layout.widgets) ||
+                        (data.data && data.data.widgets) ||
+                        data.widgets || [];
+
+        const directItems = (data.data && Array.isArray(data.data.items)) ? data.data.items :
+                            (Array.isArray(data.items) ? data.items : 
+                            (data.data && Array.isArray(data.data.products) ? data.data.products : []));
+
+        if (directItems.length > 0) {
+          widgets.push({ data: { items: directItems } });
+        }
+
+        const extracted = extractProductsFromWidgets(widgets, category, subcategory, false);
+        if (extracted.length === 0 && widgets.length === 0) {
+          break;
+        }
+
+        products.push(...extracted);
+
+        if (data.endOfPage || (data.data && data.data.endOfPage) || (data.pageLayout && data.pageLayout.endOfPage)) {
+          break;
+        }
+        if (extracted.length < 4) {
+          break;
+        }
+      }
+    } else {
+      bffFailed = true;
+    }
+
+    // Transparent RSC fallback if BFF failed or returned no items
+    if (bffFailed || products.length === 0) {
+      updateStatusFn(`Searching via Next.js RSC: "${query}"...`);
       try {
-        data = await searchBff(query, page);
-      } catch (e) {
-        console.warn('[zdeals] search error on page ' + page, e);
-        break;
-      }
-
-      if (!data) break;
-
-      const widgets = (data.pageLayout && data.pageLayout.widgets) ||
-                      (data.layout && data.layout.widgets) ||
-                      (data.data && data.data.widgets) ||
-                      data.widgets || [];
-
-      const directItems = (data.data && Array.isArray(data.data.items)) ? data.data.items :
-                          (Array.isArray(data.items) ? data.items : 
-                          (data.data && Array.isArray(data.data.products) ? data.data.products : []));
-
-      if (directItems.length > 0) {
-        widgets.push({ data: { items: directItems } });
-      }
-
-      const extracted = extractProductsFromWidgets(widgets, category, subcategory, false);
-      if (extracted.length === 0 && widgets.length === 0) {
-        break;
-      }
-
-      products.push(...extracted);
-
-      if (data.endOfPage || (data.data && data.data.endOfPage) || (data.pageLayout && data.pageLayout.endOfPage)) {
-        break;
-      }
-      if (extracted.length < 4) {
-        break;
+        const rscProducts = await searchRsc(query);
+        if (rscProducts && rscProducts.length > 0) {
+          products.push(...rscProducts);
+        }
+      } catch (rscErr) {
+        console.warn('[zdeals] RSC search fallback failed:', rscErr);
       }
     }
 
