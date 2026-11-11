@@ -43,7 +43,6 @@
     { title: 'Fragrances', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '60d9be7b-d961-471f-a6ce-17f1d4e127c0' },
     { title: 'Tea, Coffee & More', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '95a554df-77a5-40b7-b7ba-1a564f4426e9' },
     { title: 'Skincare', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '3d9d232a-5ac2-4397-bd88-4083027fea9b' },
-    { title: 'Breakfast & Sauces', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'd77c4527-dc33-4026-b729-920cdd7cd2c6' },
     { title: 'Protein & Nutrition', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'b8c3314a-3285-4cab-a06a-14dbe7b987fd' },
     { title: 'Dairy, Bread & Eggs', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'a7b876e1-deec-457e-ba19-0b1902c9f2ce' },
     { title: 'Biscuits', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '0333efaf-3c19-4683-a022-0439c827013e' },
@@ -72,6 +71,48 @@
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  const FALLBACK_STORE_ID = 'c48dd700-4314-4cc1-bffa-e1344e0298dc';
+  const COMPATIBLE_COMPONENTS = ',NEW_BILL_INFO,RE_PROMISE_ETA_ORDER_SCREEN_ENABLED,SUPERSTORE_V1,MANUALLY_APPLIED_DELIVERY_FEE_RECEIVABLE,MARKETPLACE_REPLACEMENT,ZEPTO_PASS:5,CART_REDESIGN_ENABLED,SHIPMENT_WIDGETIZATION_ENABLED,TABBED_CAROUSEL_V2,24X7_ENABLED_V1,PROMO_CASH:0,HOMEPAGE_V2,SUPER_SAVER:1,NO_PLATFORM_CHECK_ENABLED_V2,HP_V4_FEED,GIFT_CARD,SCLP_ADD_MONEY,GIFTING_ENABLED,OFSE,WIDGET_BASED_ETA,PC_REVAMP_1,NEW_ETA_BANNER,NO_COST_EMI_V1,ITEMISATION_ENABLED,SWAP_AND_SAVE_ON_CART,WIDGET_RESTRUCTURE,PRICING_CAMPAIGN_ID,BACHAT_FOR_ALL,TABBED_CAROUSEL_V3,MULTITAB_V2,VERTICAL_FEED_PRODUCT_GRID,CART_LMS:2,SAMPLING_UPSELL_CAMPAIGN,DISCOUNTED_ADDONS_ENABLED,UPSELL_COUPON_SS:0,SIZE_EXCHANGE_ENABLED,ENABLE_FLOATING_CART_BUTTON,SAMPLING_V3,HYBRID_CAMPAIGN,';
+
+  function findStoreId() {
+    const fromCookie = getCookie('store_id') || getCookie('storeId');
+    if (fromCookie && fromCookie.length > 10) return fromCookie;
+
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const val = localStorage.getItem(localStorage.key(i));
+        if (!val) continue;
+        const m = val.match(/"(?:primaryStore|store|primaryStoreId|storeId|store_id)"\s*:\s*(?:\{[^}]*"storeId"\s*:\s*)?"([a-f0-9\-]{36})"/i);
+        if (m && m[1]) return m[1];
+      }
+    } catch (e) {}
+
+    try {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const val = sessionStorage.getItem(sessionStorage.key(i));
+        if (!val) continue;
+        const m = val.match(/"store_?id"\s*:\s*"([a-f0-9\-]{36})"/i);
+        if (m && m[1]) return m[1];
+      }
+    } catch (e) {}
+
+    return FALLBACK_STORE_ID;
+  }
+
+  function findCsrfSecret() {
+    const fromCookie = getCookie('csrfSecret') || getCookie('x-csrf-secret');
+    if (fromCookie) return fromCookie;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const val = localStorage.getItem(localStorage.key(i));
+        if (!val) continue;
+        const m = val.match(/"csrf[_-]?secret"\s*:\s*"([^"]+)"/i);
+        if (m && m[1]) return m[1];
+      }
+    } catch (e) {}
+    return '';
+  }
+
   function getCookie(name) {
     try {
       const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name.replace(/[-[\]{}()*+?.,\\^$|#\\s]/g, '\\$&') + '=([^;]*)'));
@@ -83,18 +124,19 @@
 
   function getHeadersFromEnv() {
     const xsrf = getCookie('XSRF-TOKEN');
-    const csrf = getCookie('csrfSecret');
-    const storeId = getCookie('store_id');
+    const csrf = findCsrfSecret();
+    const storeId = findStoreId();
     const sessionId = getCookie('session_id') || generateUUID();
     const deviceId = getCookie('unique_browser_id') || generateUUID();
 
     const headers = {
       'accept': 'application/json, text/plain, */*',
       'app_sub_platform': 'WEB',
-      'app_version': '17.6.0',
-      'appversion': '17.6.0',
+      'app_version': '17.6.3',
+      'appversion': '17.6.3',
       'auth_from_cookie': 'true',
       'auth_revamp_flow': 'v2',
+      'compatible_components': COMPATIBLE_COMPONENTS,
       'marketplace_type': 'SUPER_SAVER',
       'platform': 'WEB',
       'source': 'DIRECT',
@@ -103,13 +145,11 @@
       'deviceid': deviceId,
       'session_id': sessionId,
       'sessionid': sessionId,
+      'store_id': storeId,
+      'storeid': storeId,
+      'store_ids': storeId,
       'x-without-bearer': 'true'
     };
-    if (storeId) {
-      headers['store_id'] = storeId;
-      headers['storeid'] = storeId;
-      headers['store_ids'] = storeId;
-    }
     if (xsrf) headers['x-xsrf-token'] = xsrf;
     if (csrf) headers['x-csrf-secret'] = csrf;
     return headers;
@@ -120,7 +160,8 @@
     const reqId = generateUUID();
     const deviceId = (baseHeaders && (baseHeaders['device_id'] || baseHeaders['deviceid'])) || getCookie('unique_browser_id') || generateUUID();
     const xsrfToken = (baseHeaders && baseHeaders['x-xsrf-token']) || getCookie('XSRF-TOKEN') || '';
-    const csrfSecret = (baseHeaders && baseHeaders['x-csrf-secret']) || getCookie('csrfSecret') || '';
+    const csrfSecret = (baseHeaders && baseHeaders['x-csrf-secret']) || findCsrfSecret() || '';
+    const storeId = (baseHeaders && (baseHeaders['store_id'] || baseHeaders['storeid'])) || findStoreId();
 
     // Exact Zepto BFF gateway signing algorithm:
     // Keys sorted alphabetically: body, deviceId, method, requestId, secret, url
@@ -140,10 +181,14 @@
     const headers = Object.assign({}, baseHeaders, {
       'content-type': 'application/json',
       'accept': 'application/json, text/plain, */*',
-      'app_version': (baseHeaders && baseHeaders['app_version']) || '17.6.0',
-      'appversion': (baseHeaders && baseHeaders['appversion']) || '17.6.0',
+      'app_version': (baseHeaders && baseHeaders['app_version']) || '17.6.3',
+      'appversion': (baseHeaders && baseHeaders['appversion']) || '17.6.3',
+      'compatible_components': COMPATIBLE_COMPONENTS,
       'device_id': deviceId,
       'deviceid': deviceId,
+      'store_id': storeId,
+      'storeid': storeId,
+      'store_ids': storeId,
       'x-xsrf-token': xsrfToken,
       'x-csrf-secret': csrfSecret,
       'request-signature': signature,
@@ -404,8 +449,8 @@
       c.categoryId !== BLOCKBUSTER_CATEGORY.categoryId && 
       (c.name || '').toLowerCase() !== 'blockbuster deals'
     );
-    // Pin Blockbuster Deals at the very top (index 0)
-    return [BLOCKBUSTER_CATEGORY, ...cleanList];
+    // Return clean list of standard categories (Blockbuster Deals is powered by dedicated 1-click button)
+    return cleanList;
   }
 
   async function getSubcategories(category, forceRefresh) {
@@ -458,101 +503,148 @@
     return res.json();
   }
 
-  // Resilient recursive product extractor across all layout widgets with image & OOS parsing
-  function extractProductsFromWidgets(widgets, category, subcategory, requireDiscount = true) {
+  // Resilient recursive product extractor across all layout widgets with image, OOS & price limit parsing
+  function extractProductsFromWidgets(widgets, category, subcategory, requireDiscount = true, maxPrice = null) {
     const products = [];
     const seenPvid = new Set();
+
+    function parseProductNode(p, subcatName) {
+      if (!p) return;
+      const prod = p.product || (p.productResponse && p.productResponse.product) || (p.item && p.item.product) || p;
+      const variant = p.productVariant || (p.productResponse && p.productResponse.productVariant) || (p.item && p.item.productVariant) || p;
+
+      const mrp = (p.mrp || (variant && variant.mrp) || 0) / 100;
+      const price = (p.discountedSellingPrice || p.sellingPrice || (variant && variant.discountedSellingPrice) || (variant && variant.sellingPrice) || mrp || 0) / 100;
+
+      // Strict validation: Reject non-products, banner headlines, media items
+      if (price <= 0 || mrp <= 0) return;
+
+      // Price limit guard (e.g. maxPrice = 51)
+      if (maxPrice !== null && maxPrice !== undefined && maxPrice > 0 && price > maxPrice) {
+        return;
+      }
+
+      const pvid = (variant && variant.id) || p.id || (prod && prod.id);
+      if (pvid && seenPvid.has(pvid)) return;
+      if (pvid) seenPvid.add(pvid);
+
+      const name = (prod && prod.name) || (p && p.name) || '';
+      if (!name || !name.trim()) return;
+
+      // Accurate Out-of-Stock check
+      const isOutOfStock = Boolean(
+        p.outOfStock || 
+        (variant && variant.outOfStock) || 
+        p.isOutOfStock ||
+        (variant && variant.inventory && variant.inventory.quantity <= 0) ||
+        (variant && variant.quantity === 0) ||
+        p.availableQuantity === 0 ||
+        (variant && variant.isActive === false) ||
+        p.isActive === false
+      );
+
+      let discountPercent = p.discountPercent !== undefined ? p.discountPercent : (variant && variant.discountPercent);
+      if ((discountPercent === undefined || discountPercent === null) && mrp > 0 && price > 0 && mrp > price) {
+        discountPercent = Math.round(((mrp - price) / mrp) * 100);
+      }
+      if (discountPercent === undefined || discountPercent === null || isNaN(discountPercent)) {
+        discountPercent = 0;
+      }
+
+      // In category browsing require discount > 0; in search include all matching items
+      if (!requireDiscount || discountPercent > 0) {
+        const productSlug = (prod && prod.slug) || slugify(name);
+        const variantId = (variant && variant.id) || '';
+        const productUrl = variantId ? `https://www.zepto.com/pn/${productSlug}/pvid/${variantId}` : `https://www.zepto.com/pn/${productSlug}`;
+
+        // Resolve Image URL
+        let imgPath = '';
+        if (variant && Array.isArray(variant.images) && variant.images.length > 0) {
+          imgPath = variant.images[0].path || variant.images[0].name || '';
+        } else if (prod && Array.isArray(prod.images) && prod.images.length > 0) {
+          imgPath = prod.images[0].path || prod.images[0].name || '';
+        } else if (Array.isArray(p.images) && p.images.length > 0) {
+          imgPath = p.images[0].path || p.images[0].url || '';
+        } else if (p.image) {
+          imgPath = typeof p.image === 'string' ? p.image : (p.image.path || p.image.url || '');
+        }
+
+        let imageUrl = '';
+        if (imgPath) {
+          if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
+            imageUrl = imgPath;
+          } else {
+            const cleanPath = imgPath.startsWith('/') ? imgPath.slice(1) : imgPath;
+            if (cleanPath.startsWith('production/')) {
+              imageUrl = `https://cdn.zeptonow.com/${cleanPath}`;
+            } else if (cleanPath.startsWith('cms/')) {
+              imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/${cleanPath}`;
+            } else if (!cleanPath.includes('/')) {
+              imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/cms/product_variant/${cleanPath}`;
+            } else {
+              imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/${cleanPath}`;
+            }
+          }
+        }
+
+        products.push({
+          name: name,
+          brand: (prod && prod.brand) || '',
+          packSize: (variant && variant.formattedPacksize) || (p && p.formattedPacksize) || '',
+          mrp: mrp,
+          price: price,
+          discountPercent: discountPercent,
+          category: (category && category.name) || '',
+          subcategory: (subcategory && subcategory.title) || subcatName || '',
+          url: productUrl,
+          imageUrl: imageUrl,
+          isOutOfStock: isOutOfStock
+        });
+      }
+    }
 
     function traverse(list) {
       if (!Array.isArray(list)) return;
       for (const w of list) {
         if (!w) continue;
-        
-        const items = (w.data && Array.isArray(w.data.items)) ? w.data.items : 
-                      (w.data && Array.isArray(w.data.products) ? w.data.products : 
-                      (Array.isArray(w.items) ? w.items : 
-                      (Array.isArray(w.products) ? w.products : [])));
-        
-        for (const p of items) {
-          if (!p) continue;
-          const prod = p.product || (p.productResponse && p.productResponse.product) || (p.item && p.item.product) || p;
-          const variant = p.productVariant || (p.productResponse && p.productResponse.productVariant) || (p.item && p.item.productVariant) || p;
-          
-          const pvid = (variant && variant.id) || p.id || (prod && prod.id);
-          if (pvid && seenPvid.has(pvid)) continue;
-          if (pvid) seenPvid.add(pvid);
+        const wName = String(w.widgetName || '');
+        const wId = String(w.widgetId || '');
 
-          // Accurate Out-of-Stock check
-          const isOutOfStock = Boolean(
-            p.outOfStock || 
-            (variant && variant.outOfStock) || 
-            p.isOutOfStock ||
-            (variant && variant.inventory && variant.inventory.quantity <= 0) ||
-            (variant && variant.quantity === 0) ||
-            p.availableQuantity === 0 ||
-            (variant && variant.isActive === false) ||
-            p.isActive === false
-          );
+        // Ignore cross-sell / recommendation carousels that inject unrelated/unfiltered items
+        if (wName.includes('CROSS_SELL') || wId.includes('CROSS_SELL')) continue;
+        // Ignore pure layout title or filter headers
+        if (wId === 'TITLE_WIDGET' || wId === 'TOP_FILTERS_WIDGET') continue;
 
-          const mrp = (p.mrp || (variant && variant.mrp) || 0) / 100;
-          const price = (p.discountedSellingPrice || p.sellingPrice || (variant && variant.discountedSellingPrice) || (variant && variant.sellingPrice) || mrp || 0) / 100;
-          let discountPercent = p.discountPercent !== undefined ? p.discountPercent : (variant && variant.discountPercent);
-          if ((discountPercent === undefined || discountPercent === null) && mrp > 0 && price > 0 && mrp > price) {
-            discountPercent = Math.round(((mrp - price) / mrp) * 100);
+        const resolverItems = (w.data && w.data.resolver && w.data.resolver.data && Array.isArray(w.data.resolver.data.items))
+          ? w.data.resolver.data.items
+          : [];
+
+        const directItems = (w.data && Array.isArray(w.data.items)) ? w.data.items : 
+                            (w.data && Array.isArray(w.data.products) ? w.data.products : 
+                            (Array.isArray(w.items) ? w.items : 
+                            (Array.isArray(w.products) ? w.products : [])));
+
+        const rawItemList = [...resolverItems, ...directItems];
+
+        for (const item of rawItemList) {
+          if (!item) continue;
+
+          // Type A: Standard Search Product Response (item.productResponse)
+          if (item.productResponse) {
+            parseProductNode(item.productResponse, (subcategory && subcategory.title) || wName);
           }
-          if (discountPercent === undefined || discountPercent === null || isNaN(discountPercent)) {
-            discountPercent = 0;
-          }
-
-          // In category browsing require discount > 0; in search include all matching items
-          if (!requireDiscount || discountPercent > 0) {
-            const productSlug = (prod && prod.slug) || slugify(prod && prod.name);
-            const variantId = (variant && variant.id) || '';
-            const productUrl = variantId ? `https://www.zepto.com/pn/${productSlug}/pvid/${variantId}` : `https://www.zepto.com/pn/${productSlug}`;
-
-            // Resolve Image URL
-            let imgPath = '';
-            if (variant && Array.isArray(variant.images) && variant.images.length > 0) {
-              imgPath = variant.images[0].path || variant.images[0].name || '';
-            } else if (prod && Array.isArray(prod.images) && prod.images.length > 0) {
-              imgPath = prod.images[0].path || prod.images[0].name || '';
-            } else if (Array.isArray(p.images) && p.images.length > 0) {
-              imgPath = p.images[0].path || p.images[0].url || '';
-            } else if (p.image) {
-              imgPath = typeof p.image === 'string' ? p.image : (p.image.path || p.image.url || '');
-            }
-
-            let imageUrl = '';
-            if (imgPath) {
-              if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
-                imageUrl = imgPath;
-              } else {
-                const cleanPath = imgPath.startsWith('/') ? imgPath.slice(1) : imgPath;
-                if (cleanPath.startsWith('production/')) {
-                  imageUrl = `https://cdn.zeptonow.com/${cleanPath}`;
-                } else if (cleanPath.startsWith('cms/')) {
-                  imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/${cleanPath}`;
-                } else if (!cleanPath.includes('/')) {
-                  imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/cms/product_variant/${cleanPath}`;
-                } else {
-                  imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/${cleanPath}`;
-                }
+          // Type B: Contextual Ad Cards (item.items -> subitem.data)
+          else if (Array.isArray(item.items)) {
+            for (const sub of item.items) {
+              if (sub && sub.type === 'MEDIA_ITEM') continue; // Skip banner/video ad items
+              if (sub && sub.data && (sub.data.product || sub.data.sellingPrice || sub.data.productVariant)) {
+                parseProductNode(sub.data, (subcategory && subcategory.title) || wName);
               }
             }
-
-            products.push({
-              name: (prod && prod.name) || (p && p.name) || '',
-              brand: (prod && prod.brand) || '',
-              packSize: (variant && variant.formattedPacksize) || (p && p.formattedPacksize) || '',
-              mrp: mrp,
-              price: price,
-              discountPercent: discountPercent,
-              category: (category && category.name) || '',
-              subcategory: (subcategory && subcategory.title) || '',
-              url: productUrl,
-              imageUrl: imageUrl,
-              isOutOfStock: isOutOfStock
-            });
+          }
+          // Type C: Direct Product Item
+          else if (item.product || item.productVariant || item.sellingPrice) {
+            parseProductNode(item.data || item, (subcategory && subcategory.title) || wName);
           }
         }
 
@@ -565,7 +657,7 @@
     return products;
   }
 
-  async function getDeals(category, subcategory, updateStatusFn) {
+  async function getDeals(category, subcategory, updateStatusFn, maxPages = MAX_PAGES_PER_SUBCAT) {
     if (!capturedHeaders && !getCookie('store_id') && !getCookie('XSRF-TOKEN')) {
       throw new Error('[zdeals] no session headers captured — cannot fetch deals');
     }
@@ -584,7 +676,7 @@
     };
 
     let page = 1;
-    while (page <= MAX_PAGES_PER_SUBCAT) {
+    while (page <= maxPages) {
       updateStatusFn(`Extracting: ${subcategory.title} (Page ${page})`);
       if (page > 1) {
         await new Promise(r => setTimeout(r, 500 + Math.random() * 700));
@@ -624,7 +716,7 @@
   }
 
   // ================== Search API Service ==================
-  async function searchBff(query, pageNumber) {
+  async function searchBff(query, pageNumber, options = {}) {
     const urlPath = '/user-search-service/api/v3/search';
     const sessionId = (capturedHeaders && (capturedHeaders['session_id'] || capturedHeaders['sessionid'])) || getCookie('session_id') || generateUUID();
     const body = {
@@ -634,6 +726,21 @@
       mode: 'AUTOSUGGEST',
       userSessionId: sessionId
     };
+
+    // Server-side Range / Price Filter (BFF User Search Service v3)
+    if (options.maxPrice !== undefined && options.maxPrice !== null && !isNaN(options.maxPrice) && options.maxPrice > 0) {
+      body.filterId = generateUUID();
+      body.rangeFilters = {
+        price: {
+          min: options.minPrice !== undefined ? Number(options.minPrice) : 0,
+          max: Number(options.maxPrice)
+        }
+      };
+      body.requestMeta = {
+        filterMode: 1
+      };
+    }
+
     const bodyStr = JSON.stringify(body);
     const reqHeaders = await generateSignedHeaders('POST', urlPath, bodyStr);
 
@@ -700,25 +807,30 @@
   }
 
   const MAX_SEARCH_PAGES = 4;
-  async function getSearchResults(query, updateStatusFn) {
+  async function getSearchResults(query, updateStatusFn, options = {}) {
     const products = [];
     const category = { name: 'Search' };
-    const subcategory = { title: `"${query}"` };
+    const maxPrice = options.maxPrice ? Number(options.maxPrice) : null;
+    const subcategory = { title: maxPrice ? `"${query}" (≤₹${maxPrice})` : `"${query}"` };
     let bffFailed = false;
 
     // Check if session headers are present for BFF search; if missing, fall back to RSC directly
-    const hasBffHeaders = Boolean(capturedHeaders || getCookie('XSRF-TOKEN') || getCookie('store_id'));
+    const hasBffHeaders = Boolean(capturedHeaders || getCookie('XSRF-TOKEN') || getCookie('store_id') || findStoreId());
+
+    // When maxPrice is provided, 1 page (Page 0) is usually sufficient because server-side filter puts all matching items right on Page 1!
+    // But if maxPages is specified in options, respect it (defaults to 1 if maxPrice is active, or MAX_SEARCH_PAGES otherwise)
+    const maxPagesToFetch = options.maxPages || (maxPrice ? 1 : MAX_SEARCH_PAGES);
 
     if (hasBffHeaders) {
-      for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
-        updateStatusFn(`Searching: "${query}" (Page ${page + 1})`);
+      for (let page = 0; page < maxPagesToFetch; page++) {
+        updateStatusFn(`Searching: "${query}" (Page ${page + 1}${maxPrice ? ` ≤₹${maxPrice}` : ''})`);
         if (page > 0) {
           await new Promise(r => setTimeout(r, 400 + Math.random() * 500));
         }
 
         let data;
         try {
-          data = await searchBff(query, page);
+          data = await searchBff(query, page, { maxPrice });
         } catch (e) {
           console.warn(`[zdeals] BFF search failed on page ${page}:`, e);
           if (page === 0) {
@@ -729,27 +841,34 @@
 
         if (!data) break;
 
-        const widgets = (data.pageLayout && data.pageLayout.widgets) ||
-                        (data.layout && data.layout.widgets) ||
-                        (data.data && data.data.widgets) ||
-                        data.widgets || [];
+        // Search returns array in data.layout directly!
+        let widgets = [];
+        if (Array.isArray(data.layout)) {
+          widgets = data.layout;
+        } else if (data.pageLayout && Array.isArray(data.pageLayout.widgets)) {
+          widgets = data.pageLayout.widgets;
+        } else if (data.layout && Array.isArray(data.layout.widgets)) {
+          widgets = data.layout.widgets;
+        } else if (Array.isArray(data.widgets)) {
+          widgets = data.widgets;
+        }
 
         const directItems = (data.data && Array.isArray(data.data.items)) ? data.data.items :
                             (Array.isArray(data.items) ? data.items : 
-                            (data.data && Array.isArray(data.data.products) ? data.data.products : []));
+                            (data.data && Array.isArray(data.data.products)) ? data.data.products : []);
 
         if (directItems.length > 0) {
           widgets.push({ data: { items: directItems } });
         }
 
-        const extracted = extractProductsFromWidgets(widgets, category, subcategory, false);
+        const extracted = extractProductsFromWidgets(widgets, category, subcategory, false, maxPrice);
         if (extracted.length === 0 && widgets.length === 0) {
           break;
         }
 
         products.push(...extracted);
 
-        if (data.endOfPage || (data.data && data.data.endOfPage) || (data.pageLayout && data.pageLayout.endOfPage)) {
+        if (data.endOfPage || (data.data && data.data.endOfPage) || (data.pageLayout && data.pageLayout.endOfPage) || data.hasReachedEnd) {
           break;
         }
         if (extracted.length < 4) {
@@ -766,7 +885,8 @@
       try {
         const rscProducts = await searchRsc(query);
         if (rscProducts && rscProducts.length > 0) {
-          products.push(...rscProducts);
+          const filteredRsc = maxPrice ? rscProducts.filter(p => p.price <= maxPrice) : rscProducts;
+          products.push(...filteredRsc);
         }
       } catch (rscErr) {
         console.warn('[zdeals] RSC search fallback failed:', rscErr);
@@ -1209,6 +1329,11 @@
         </div>
 
         <div class="filter-item">
+          <label class="filter-label" for="filter-max-price">Max Price (₹)</label>
+          <input id="filter-max-price" type="number" class="filter-select" placeholder="e.g. 51" min="1" max="9999" style="width: 90px; padding: 6px 10px;">
+        </div>
+
+        <div class="filter-item">
           <label class="filter-label" for="filter-availability">Availability</label>
           <select id="filter-availability" class="filter-select">
             <option value="all">All Items</option>
@@ -1258,6 +1383,7 @@
   const searchInput = document.getElementById('search');
   const subcatSelect = document.getElementById('filter-subcat');
   const discountSelect = document.getElementById('filter-min-discount');
+  const maxPriceFilter = document.getElementById('filter-max-price');
   const availabilitySelect = document.getElementById('filter-availability');
   const sortSelect = document.getElementById('filter-sort');
   const visibleCountEl = document.getElementById('visible-count');
@@ -1269,6 +1395,7 @@
     const q = (searchInput.value || '').toLowerCase().trim();
     const selectedSubcat = subcatSelect.value;
     const minDisc = parseFloat(discountSelect.value) || 0;
+    const maxP = parseFloat(maxPriceFilter.value) || Infinity;
     const availMode = availabilitySelect.value;
     const sortMode = sortSelect.value;
 
@@ -1279,16 +1406,18 @@
       const brand = (card.getAttribute('data-brand') || '').toLowerCase();
       const subcat = card.getAttribute('data-subcat') || '';
       const disc = parseFloat(card.getAttribute('data-discount')) || 0;
+      const price = parseFloat(card.getAttribute('data-price')) || 0;
       const isOOS = card.getAttribute('data-oos') === '1';
 
       const matchesSearch = !q || name.includes(q) || brand.includes(q);
       const matchesSubcat = !selectedSubcat || subcat === selectedSubcat;
       const matchesDiscount = disc >= minDisc;
+      const matchesPrice = price <= maxP;
       const matchesAvail = (availMode === 'all') || 
                            (availMode === 'instock' && !isOOS) || 
                            (availMode === 'oos' && isOOS);
 
-      if (matchesSearch && matchesSubcat && matchesDiscount && matchesAvail) {
+      if (matchesSearch && matchesSubcat && matchesDiscount && matchesPrice && matchesAvail) {
         card.style.display = 'flex';
         visibleCards.push(card);
       } else {
@@ -1328,6 +1457,7 @@
   searchInput.addEventListener('input', applyFiltersAndSort);
   subcatSelect.addEventListener('change', applyFiltersAndSort);
   discountSelect.addEventListener('change', applyFiltersAndSort);
+  maxPriceFilter.addEventListener('input', applyFiltersAndSort);
   availabilitySelect.addEventListener('change', applyFiltersAndSort);
   sortSelect.addEventListener('change', applyFiltersAndSort);
 
@@ -1413,16 +1543,36 @@
       #zdeals-panel .zd-refresh:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
       
       /* Search bar */
-      #zdeals-panel .zd-search-bar { padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 8px; align-items: center; }
-      #zdeals-panel .zd-search-wrap { position: relative; flex: 1; display: flex; align-items: center; }
-      #zdeals-panel .zd-search-wrap svg { position: absolute; left: 10px; pointer-events: none; color: #94a3b8; }
-      #zdeals-panel #zdeals-search-input { width: 100%; padding: 8px 28px 8px 32px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff; color: #0f172a; transition: all 0.2s ease; }
+      #zdeals-panel .zd-search-bar { padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 6px; align-items: center; }
+      #zdeals-panel .zd-search-wrap { position: relative; flex: 1; display: flex; align-items: center; min-width: 0; }
+      #zdeals-panel .zd-search-wrap svg { position: absolute; left: 9px; pointer-events: none; color: #94a3b8; }
+      #zdeals-panel #zdeals-search-input { width: 100%; padding: 7px 24px 7px 28px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; outline: none; background: #ffffff; color: #0f172a; transition: all 0.2s ease; }
       #zdeals-panel #zdeals-search-input:focus { border-color: #5300f8; box-shadow: 0 0 0 3px rgba(83, 0, 248, 0.12); }
-      #zdeals-panel #zdeals-search-clear { position: absolute; right: 8px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 13px; padding: 2px 4px; line-height: 1; }
+      #zdeals-panel #zdeals-search-clear { position: absolute; right: 7px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 2px 4px; line-height: 1; }
       #zdeals-panel #zdeals-search-clear:hover { color: #475569; }
-      #zdeals-panel #zdeals-search-btn { padding: 8px 13px; background: #5300f8; color: #ffffff; border: none; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background 0.15s ease; white-space: nowrap; }
+      #zdeals-panel .zd-price-wrap { position: relative; display: flex; align-items: center; width: 62px; flex-shrink: 0; }
+      #zdeals-panel .zd-price-symbol { position: absolute; left: 6px; color: #64748b; font-size: 11px; font-weight: 700; pointer-events: none; }
+      #zdeals-panel #zdeals-max-price { width: 100%; padding: 7px 4px 7px 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12px; outline: none; background: #ffffff; color: #0f172a; text-align: left; }
+      #zdeals-panel #zdeals-max-price:focus { border-color: #5300f8; box-shadow: 0 0 0 3px rgba(83, 0, 248, 0.12); }
+      #zdeals-panel #zdeals-search-btn { padding: 7px 11px; background: #5300f8; color: #ffffff; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s ease; white-space: nowrap; flex-shrink: 0; }
       #zdeals-panel #zdeals-search-btn:hover { background: #4300c7; }
       #zdeals-panel #zdeals-search-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+      /* Quick Scan bar */
+      #zdeals-panel .zd-quick-bar { padding: 7px 14px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+      #zdeals-panel #zdeals-quick-scan-btn { background: #ede9fe; color: #5300f8; border: 1px solid #c4b5fd; border-radius: 6px; padding: 4px 9px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.15s ease; white-space: nowrap; }
+      #zdeals-panel #zdeals-quick-scan-btn:hover { background: #ddd6fe; border-color: #a78bfa; }
+      #zdeals-panel #zdeals-quick-scan-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      #zdeals-panel .zd-quick-hint { font-size: 11px; color: #64748b; }
+
+      /* Blockbuster 1-Click Scan Bar */
+      #zdeals-panel .zd-blockbuster-box { padding: 9px 14px; background: linear-gradient(135deg, #fdf4ff 0%, #f5f3ff 100%); border-bottom: 1px solid #e9d5ff; }
+      #zdeals-panel #zdeals-blockbuster-btn { width: 100%; padding: 8px 12px; background: linear-gradient(135deg, #7c3aed 0%, #5300f8 100%); color: #ffffff; border: none; border-radius: 8px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 6px rgba(83, 0, 248, 0.22); transition: all 0.15s ease; }
+      #zdeals-panel #zdeals-blockbuster-btn:hover { background: linear-gradient(135deg, #6d28d9 0%, #4300c7 100%); box-shadow: 0 4px 10px rgba(83, 0, 248, 0.32); }
+      #zdeals-panel #zdeals-blockbuster-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      #zdeals-panel .zd-bb-left { display: flex; align-items: center; gap: 7px; }
+      #zdeals-panel .zd-bb-fire { font-size: 15px; line-height: 1; }
+      #zdeals-panel .zd-bb-tag { font-size: 9.5px; background: rgba(255, 255, 255, 0.22); padding: 2px 6px; border-radius: 4px; font-weight: 800; letter-spacing: 0.04em; }
 
       #zdeals-body { overflow-y: auto; flex: 1; background: #ffffff; }
       #zdeals-panel .zd-cat { padding: 12px 18px; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; font-weight: 500; color: #334155; transition: background 0.15s; }
@@ -1521,10 +1671,29 @@
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <input type="text" id="zdeals-search-input" placeholder="Search products (e.g. sweets, oil)..." />
+          <input type="text" id="zdeals-search-input" placeholder="Search products (e.g. snacks, oil)..." />
           <button id="zdeals-search-clear" style="display:none;" title="Clear">✕</button>
         </div>
+        <div class="zd-price-wrap" title="Server-side Max Price filter (₹)">
+          <span class="zd-price-symbol">₹</span>
+          <input type="number" id="zdeals-max-price" placeholder="51" value="51" min="1" max="9999" title="Max Price in ₹ (defaults to ₹51 for Page 1 quick scan)" />
+        </div>
         <button id="zdeals-search-btn">Search</button>
+      </div>
+      <div class="zd-quick-bar">
+        <button id="zdeals-quick-scan-btn" title="Quick Scan Page 1 under ₹51 across popular categories or active keyword">
+          ⚡ Quick Scan &lt;₹51
+        </button>
+        <span class="zd-quick-hint">Page 1 Server Filter</span>
+      </div>
+      <div class="zd-blockbuster-box">
+        <button id="zdeals-blockbuster-btn" title="Scan Zepto's curated Blockbuster Deals (Top Picks) in 1-click">
+          <div class="zd-bb-left">
+            <span class="zd-bb-fire">🔥</span>
+            <span>Blockbuster Top Picks</span>
+          </div>
+          <span class="zd-bb-tag">⚡ 1-CLICK</span>
+        </button>
       </div>
       <div id="zdeals-body"></div>
       <div id="zdeals-footer">
@@ -1536,7 +1705,12 @@
     const searchInput = document.getElementById('zdeals-search-input');
     const searchBtn = document.getElementById('zdeals-search-btn');
     const searchClear = document.getElementById('zdeals-search-clear');
+    const maxPriceInput = document.getElementById('zdeals-max-price');
+    const quickScanBtn = document.getElementById('zdeals-quick-scan-btn');
+    const blockbusterBtn = document.getElementById('zdeals-blockbuster-btn');
     const fetchBtn = document.getElementById('zdeals-fetch-btn');
+
+    const QUICK_SCAN_CATEGORIES = ['Snacks', 'Biscuits', 'Beverages', 'Instant Food', 'Chocolates', 'Dairy'];
 
     searchInput.addEventListener('input', () => {
       searchClear.style.display = searchInput.value.trim() ? 'block' : 'none';
@@ -1554,6 +1728,9 @@
       const q = (searchInput.value || '').trim();
       if (!q) return;
 
+      const maxPriceVal = parseFloat(maxPriceInput ? maxPriceInput.value : '');
+      const maxPrice = (!isNaN(maxPriceVal) && maxPriceVal > 0) ? maxPriceVal : null;
+
       // Deselect any category selections
       selections.clear();
       document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
@@ -1562,6 +1739,56 @@
         if (cb) { cb.checked = false; cb.disabled = false; }
       });
 
+      searchBtn.disabled = true;
+      if (quickScanBtn) quickScanBtn.disabled = true;
+      if (blockbusterBtn) blockbusterBtn.disabled = true;
+      searchInput.disabled = true;
+      fetchBtn.disabled = true;
+
+      const updateStatus = (msg) => { fetchBtn.textContent = msg; };
+
+      try {
+        if (!capturedHeaders) {
+          await ensureSessionAtStart(updateStatus);
+        }
+        fetchedProductsData = await getSearchResults(q, updateStatus, { maxPrice });
+        currentSearchQuery = maxPrice ? `${q} (≤₹${maxPrice})` : q;
+        flatSelectionsData = [];
+
+        fetchBtn.dataset.state = 'ready';
+        fetchBtn.dataset.mode = 'search';
+        fetchBtn.textContent = `View Results (${fetchedProductsData.length} items for "${q}"${maxPrice ? ` ≤₹${maxPrice}` : ''})`;
+        fetchBtn.disabled = false;
+
+        // Auto-open grid tab
+        openResultsTab(`Search: "${q}"${maxPrice ? ` (≤₹${maxPrice})` : ''}`, fetchedProductsData);
+      } catch (err) {
+        console.error('[zdeals]', err);
+        fetchBtn.textContent = 'Search failed. Please retry.';
+        setTimeout(resetFetchButton, 2500);
+      } finally {
+        searchBtn.disabled = false;
+        if (quickScanBtn) quickScanBtn.disabled = false;
+        if (blockbusterBtn) blockbusterBtn.disabled = false;
+        searchInput.disabled = false;
+      }
+    }
+
+    async function triggerQuickScan() {
+      const maxPriceVal = parseFloat(maxPriceInput ? maxPriceInput.value : '');
+      const maxPrice = (!isNaN(maxPriceVal) && maxPriceVal > 0) ? maxPriceVal : 51;
+      const searchVal = (searchInput.value || '').trim();
+      const targetQueries = searchVal ? [searchVal] : QUICK_SCAN_CATEGORIES;
+
+      selections.clear();
+      document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
+        row.classList.remove('disabled');
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) { cb.checked = false; cb.disabled = false; }
+      });
+
+      if (quickScanBtn) quickScanBtn.disabled = true;
+      if (blockbusterBtn) blockbusterBtn.disabled = true;
       searchBtn.disabled = true;
       searchInput.disabled = true;
       fetchBtn.disabled = true;
@@ -1572,25 +1799,119 @@
         if (!capturedHeaders) {
           await ensureSessionAtStart(updateStatus);
         }
-        fetchedProductsData = await getSearchResults(q, updateStatus);
-        currentSearchQuery = q;
+
+        const allResults = [];
+        const seenKeys = new Set();
+
+        for (let i = 0; i < targetQueries.length; i++) {
+          const kw = targetQueries[i];
+          updateStatus(`Quick Scan (${i + 1}/${targetQueries.length}): "${kw}" ≤₹${maxPrice}...`);
+          if (i > 0) {
+            await new Promise(r => setTimeout(r, 350 + Math.random() * 250));
+          }
+          const res = await getSearchResults(kw, () => {}, { maxPrice, maxPages: 1 });
+          for (const item of res) {
+            const key = item.url || (item.name + item.price);
+            if (!seenKeys.has(key)) {
+              seenKeys.add(key);
+              allResults.push(item);
+            }
+          }
+        }
+
+        fetchedProductsData = allResults.sort((a, b) => b.discountPercent - a.discountPercent);
+        currentSearchQuery = searchVal ? `${searchVal} (≤₹${maxPrice})` : `Quick Deals ≤₹${maxPrice}`;
         flatSelectionsData = [];
 
         fetchBtn.dataset.state = 'ready';
         fetchBtn.dataset.mode = 'search';
-        fetchBtn.textContent = `View Results (${fetchedProductsData.length} items for "${q}")`;
+        fetchBtn.textContent = `View Results (${fetchedProductsData.length} items ≤₹${maxPrice})`;
         fetchBtn.disabled = false;
 
-        // Auto-open grid tab
-        openResultsTab(`Search: "${q}"`, fetchedProductsData);
+        openResultsTab(searchVal ? `Deals: "${searchVal}" (≤₹${maxPrice})` : `Quick Deals (≤₹${maxPrice})`, fetchedProductsData);
       } catch (err) {
         console.error('[zdeals]', err);
-        fetchBtn.textContent = 'Search failed. Please retry.';
+        fetchBtn.textContent = 'Quick Scan failed. Retry.';
         setTimeout(resetFetchButton, 2500);
       } finally {
+        if (quickScanBtn) quickScanBtn.disabled = false;
+        if (blockbusterBtn) blockbusterBtn.disabled = false;
         searchBtn.disabled = false;
         searchInput.disabled = false;
       }
+    }
+
+    if (quickScanBtn) {
+      quickScanBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerQuickScan();
+      });
+    }
+
+    async function triggerBlockbusterScan() {
+      // Clear any search input & existing category selections
+      searchInput.value = '';
+      searchClear.style.display = 'none';
+      currentSearchQuery = '';
+      selections.clear();
+      document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
+        row.classList.remove('disabled');
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) { cb.checked = false; cb.disabled = false; }
+      });
+
+      if (blockbusterBtn) blockbusterBtn.disabled = true;
+      if (quickScanBtn) quickScanBtn.disabled = true;
+      searchBtn.disabled = true;
+      searchInput.disabled = true;
+      fetchBtn.disabled = true;
+
+      const updateStatus = (msg) => { fetchBtn.textContent = msg; };
+
+      try {
+        if (!capturedHeaders) {
+          await ensureSessionAtStart(updateStatus);
+        }
+
+        updateStatus('Extracting Blockbuster Top Picks (Page 1)...');
+        const topPicksSubcat = {
+          title: 'Top Picks',
+          categoryId: BLOCKBUSTER_CATEGORY.categoryId,
+          subCategoryId: BLOCKBUSTER_CATEGORY.subCategoryId
+        };
+
+        const subDeals = await getDeals(BLOCKBUSTER_CATEGORY, topPicksSubcat, updateStatus, 2);
+
+        // Sort by discount percent descending (highest deals at the very top)
+        subDeals.sort((a, b) => b.discountPercent - a.discountPercent);
+
+        fetchedProductsData = subDeals;
+        currentSearchQuery = '';
+        flatSelectionsData = [];
+
+        fetchBtn.dataset.state = 'ready';
+        fetchBtn.dataset.mode = 'blockbuster';
+        fetchBtn.textContent = `View Blockbuster Deals (${subDeals.length} items)`;
+        fetchBtn.disabled = false;
+
+        openResultsTab('🔥 Blockbuster Deals — Top Picks', subDeals);
+      } catch (err) {
+        console.error('[zdeals]', err);
+        fetchBtn.textContent = 'Blockbuster scan failed. Retry.';
+        setTimeout(resetFetchButton, 2500);
+      } finally {
+        if (blockbusterBtn) blockbusterBtn.disabled = false;
+        if (quickScanBtn) quickScanBtn.disabled = false;
+        searchBtn.disabled = false;
+        searchInput.disabled = false;
+      }
+    }
+
+    if (blockbusterBtn) {
+      blockbusterBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerBlockbusterScan();
+      });
     }
 
     searchBtn.addEventListener('click', (e) => {
@@ -1659,6 +1980,8 @@
       if (fetchBtn.dataset.state === 'ready') {
         if (fetchBtn.dataset.mode === 'search') {
           openResultsTab(`Search: "${currentSearchQuery}"`, fetchedProductsData);
+        } else if (fetchBtn.dataset.mode === 'blockbuster') {
+          openResultsTab('🔥 Blockbuster Deals — Top Picks', fetchedProductsData);
         } else {
           const title = flatSelectionsData.length === 1 ? `${flatSelectionsData[0].category.name} — ${flatSelectionsData[0].subcategory.title}` : `Zepto Deals (${flatSelectionsData.length} subcategories)`;
           openResultsTab(title, fetchedProductsData);
