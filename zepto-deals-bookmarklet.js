@@ -162,6 +162,8 @@
     const xsrfToken = (baseHeaders && baseHeaders['x-xsrf-token']) || getCookie('XSRF-TOKEN') || '';
     const csrfSecret = (baseHeaders && baseHeaders['x-csrf-secret']) || findCsrfSecret() || '';
     const storeId = (baseHeaders && (baseHeaders['store_id'] || baseHeaders['storeid'])) || findStoreId();
+    const sessionId = (baseHeaders && (baseHeaders['session_id'] || baseHeaders['sessionid'])) || getCookie('session_id') || generateUUID();
+    const appVersion = (baseHeaders && (baseHeaders['app_version'] || baseHeaders['appversion'])) || '18.1.1';
 
     // Exact Zepto BFF gateway signing algorithm:
     // Keys sorted alphabetically: body, deviceId, method, requestId, secret, url
@@ -178,27 +180,39 @@
     const signature = await sha256Hex(paramStr);
     const timezone = await sha256Hex(signature);
 
-    const headers = Object.assign({}, baseHeaders, {
-      'content-type': 'application/json',
+    // Build explicit, clean headers. Never carry over ephemeral widget IDs or layout-specific headers (which trigger 429).
+    const headers = {
       'accept': 'application/json, text/plain, */*',
-      'app_version': (baseHeaders && baseHeaders['app_version']) || '17.6.3',
-      'appversion': (baseHeaders && baseHeaders['appversion']) || '17.6.3',
+      'content-type': 'application/json',
+      'app_sub_platform': 'WEB',
+      'app_version': appVersion,
+      'appversion': appVersion,
+      'auth_from_cookie': 'true',
+      'auth_revamp_flow': 'v2',
       'compatible_components': COMPATIBLE_COMPONENTS,
+      'marketplace_type': 'SUPER_SAVER',
+      'platform': 'WEB',
+      'source': 'DIRECT',
+      'tenant': 'ZEPTO',
       'device_id': deviceId,
       'deviceid': deviceId,
+      'session_id': sessionId,
+      'sessionid': sessionId,
       'store_id': storeId,
       'storeid': storeId,
       'store_ids': storeId,
-      'x-xsrf-token': xsrfToken,
-      'x-csrf-secret': csrfSecret,
       'request-signature': signature,
       'x-timezone': timezone,
       'request_id': reqId,
-      'requestid': reqId,
-      'requestId': reqId
-    });
+      'requestid': reqId
+    };
 
-    if (!headers['authorization'] && !headers['Authorization']) {
+    if (xsrfToken) headers['x-xsrf-token'] = xsrfToken;
+    if (csrfSecret) headers['x-csrf-secret'] = csrfSecret;
+
+    if (baseHeaders && (baseHeaders['authorization'] || baseHeaders['Authorization'])) {
+      headers['authorization'] = baseHeaders['authorization'] || baseHeaders['Authorization'];
+    } else {
       headers['x-without-bearer'] = 'true';
     }
 
@@ -251,6 +265,18 @@
     if (window.__zdealsOmniPatched) return;
     window.__zdealsOmniPatched = true;
 
+    function sanitizeAndStoreHeaders(rawHeaders) {
+      if (!capturedHeaders) capturedHeaders = {};
+      const allowed = [
+        'authorization', 'x-xsrf-token', 'x-csrf-secret',
+        'session_id', 'sessionid', 'device_id', 'deviceid',
+        'store_id', 'storeid', 'app_version', 'appversion'
+      ];
+      for (const k of allowed) {
+        if (rawHeaders[k]) capturedHeaders[k] = rawHeaders[k];
+      }
+    }
+
     const origFetch = window.fetch;
     window.fetch = function(input, init) {
       try {
@@ -264,7 +290,7 @@
             else Object.keys(init.headers).forEach(k => headers[k.toLowerCase()] = init.headers[k]);
           }
           if (headers['request-signature'] || headers['x-csrf-secret'] || headers['x-xsrf-token']) {
-            capturedHeaders = Object.assign({}, capturedHeaders || {}, headers);
+            sanitizeAndStoreHeaders(headers);
             extractLocFromBody(init ? init.body : null);
           }
         }
@@ -287,7 +313,7 @@
     XMLHttpRequest.prototype.send = function(body) {
       if (this._zUrl && this._zUrl.includes('bff-gateway.zepto.com')) {
         if (this._zHeaders['request-signature'] || this._zHeaders['x-csrf-secret'] || this._zHeaders['x-xsrf-token']) {
-          capturedHeaders = Object.assign({}, capturedHeaders || {}, this._zHeaders);
+          sanitizeAndStoreHeaders(this._zHeaders);
           extractLocFromBody(body);
         }
       }
@@ -403,6 +429,62 @@
       }
     }
     return null;
+  }
+
+  function extractBalanced(text, start, openChar, closeChar) {
+    if (text[start] !== openChar) return null;
+    let depth = 0, inString = false, escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === openChar) depth++;
+      else if (ch === closeChar) {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    return null;
+  }
+
+  function extractKeyValues(text, keyName) {
+    const results = [];
+    const searchPattern = '"' + keyName + '"';
+    let pos = 0;
+    while (true) {
+      const keyIdx = text.indexOf(searchPattern, pos);
+      if (keyIdx === -1) break;
+
+      const colonIdx = text.indexOf(':', keyIdx + searchPattern.length);
+      if (colonIdx === -1) break;
+
+      let valStart = colonIdx + 1;
+      while (valStart < text.length && /\s/.test(text[valStart])) valStart++;
+
+      const firstChar = text[valStart];
+      if (firstChar === '{') {
+        const slice = extractBalanced(text, valStart, '{', '}');
+        if (slice) {
+          try { results.push(JSON.parse(slice)); } catch (e) {}
+          pos = valStart + slice.length;
+          continue;
+        }
+      } else if (firstChar === '[') {
+        const slice = extractBalanced(text, valStart, '[', ']');
+        if (slice) {
+          try { results.push(JSON.parse(slice)); } catch (e) {}
+          pos = valStart + slice.length;
+          continue;
+        }
+      }
+      pos = keyIdx + searchPattern.length;
+    }
+    return results;
   }
 
   function slugify(name) { return (name || '').toLowerCase().replace(/&/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-+|-+$)/g, ''); }
@@ -764,43 +846,43 @@
 
     let widgets = [];
 
-    // 1. Check for pageLayout widgets
-    const pageLayouts = extractJsonObjects(text, '{"pageLayout"');
-    for (const pl of pageLayouts) {
-      if (pl.pageLayout && Array.isArray(pl.pageLayout.widgets)) {
-        widgets.push(...pl.pageLayout.widgets);
-      }
-    }
-
-    // 2. Check for layout widgets
-    if (widgets.length === 0) {
-      const layouts = extractJsonObjects(text, '{"layout"');
-      for (const l of layouts) {
-        if (l.layout && Array.isArray(l.layout.widgets)) {
-          widgets.push(...l.layout.widgets);
-        }
-      }
-    }
-
-    // 3. Check for generic widgets list
-    if (widgets.length === 0) {
-      const widgetLists = extractJsonObjects(text, '{"widgets"');
-      for (const wl of widgetLists) {
-        if (Array.isArray(wl.widgets)) {
-          widgets.push(...wl.widgets);
-        }
-      }
-    }
-
-    // 4. Check for direct product items in RSC stream
-    const directResponses = extractJsonObjects(text, '{"productResponse"');
+    // 1. Extract direct productResponse items (standard Next.js RSC search payload)
+    const directResponses = extractKeyValues(text, 'productResponse');
     if (directResponses.length > 0) {
-      widgets.push({ data: { items: directResponses } });
+      widgets.push({ data: { items: directResponses.map(pr => ({ productResponse: pr })) } });
     }
 
-    const directVariants = extractJsonObjects(text, '{"productVariant"');
+    // 2. Extract direct productVariant items
+    const directVariants = extractKeyValues(text, 'productVariant');
     if (directVariants.length > 0) {
-      widgets.push({ data: { items: directVariants } });
+      widgets.push({ data: { items: directVariants.map(pv => ({ productVariant: pv })) } });
+    }
+
+    // 3. Extract layout / widgets arrays
+    const widgetLists = extractKeyValues(text, 'widgets');
+    for (const wl of widgetLists) {
+      if (Array.isArray(wl)) widgets.push(...wl);
+    }
+
+    // 4. Extract pageLayout objects
+    const pageLayouts = extractKeyValues(text, 'pageLayout');
+    for (const pl of pageLayouts) {
+      if (pl && Array.isArray(pl.widgets)) widgets.push(...pl.widgets);
+    }
+
+    // 5. Extract layout arrays/objects
+    const layouts = extractKeyValues(text, 'layout');
+    for (const l of layouts) {
+      if (Array.isArray(l)) widgets.push(...l);
+      else if (l && Array.isArray(l.widgets)) widgets.push(...l.widgets);
+    }
+
+    // 6. Extract items array
+    const itemArrays = extractKeyValues(text, 'items');
+    for (const items of itemArrays) {
+      if (Array.isArray(items)) {
+        widgets.push({ data: { items: items } });
+      }
     }
 
     return extractProductsFromWidgets(widgets, category, subcategory, false);
@@ -1807,7 +1889,7 @@
           const kw = targetQueries[i];
           updateStatus(`Quick Scan (${i + 1}/${targetQueries.length}): "${kw}" ≤₹${maxPrice}...`);
           if (i > 0) {
-            await new Promise(r => setTimeout(r, 350 + Math.random() * 250));
+            await new Promise(r => setTimeout(r, 650 + Math.random() * 350));
           }
           const res = await getSearchResults(kw, () => {}, { maxPrice, maxPages: 1 });
           for (const item of res) {
