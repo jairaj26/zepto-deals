@@ -1625,36 +1625,27 @@
       #zdeals-panel .zd-refresh:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
       
       /* Search bar */
-      #zdeals-panel .zd-search-bar { padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 6px; align-items: center; }
+      #zdeals-panel .zd-search-bar { padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 8px; align-items: center; }
       #zdeals-panel .zd-search-wrap { position: relative; flex: 1; display: flex; align-items: center; min-width: 0; }
-      #zdeals-panel .zd-search-wrap svg { position: absolute; left: 9px; pointer-events: none; color: #94a3b8; }
-      #zdeals-panel #zdeals-search-input { width: 100%; padding: 7px 24px 7px 28px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; outline: none; background: #ffffff; color: #0f172a; transition: all 0.2s ease; }
+      #zdeals-panel .zd-search-wrap svg { position: absolute; left: 10px; pointer-events: none; color: #94a3b8; }
+      #zdeals-panel #zdeals-search-input { width: 100%; padding: 8px 26px 8px 30px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff; color: #0f172a; transition: all 0.2s ease; }
       #zdeals-panel #zdeals-search-input:focus { border-color: #5300f8; box-shadow: 0 0 0 3px rgba(83, 0, 248, 0.12); }
-      #zdeals-panel #zdeals-search-clear { position: absolute; right: 7px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 2px 4px; line-height: 1; }
+      #zdeals-panel #zdeals-search-clear { position: absolute; right: 8px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 13px; padding: 2px 4px; line-height: 1; }
       #zdeals-panel #zdeals-search-clear:hover { color: #475569; }
-      #zdeals-panel .zd-price-wrap { position: relative; display: flex; align-items: center; width: 62px; flex-shrink: 0; }
-      #zdeals-panel .zd-price-symbol { position: absolute; left: 6px; color: #64748b; font-size: 11px; font-weight: 700; pointer-events: none; }
-      #zdeals-panel #zdeals-max-price { width: 100%; padding: 7px 4px 7px 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12px; outline: none; background: #ffffff; color: #0f172a; text-align: left; }
-      #zdeals-panel #zdeals-max-price:focus { border-color: #5300f8; box-shadow: 0 0 0 3px rgba(83, 0, 248, 0.12); }
-      #zdeals-panel #zdeals-search-btn { padding: 7px 11px; background: #5300f8; color: #ffffff; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s ease; white-space: nowrap; flex-shrink: 0; }
+      #zdeals-panel #zdeals-search-btn { padding: 8px 14px; background: #5300f8; color: #ffffff; border: none; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background 0.15s ease; white-space: nowrap; flex-shrink: 0; }
       #zdeals-panel #zdeals-search-btn:hover { background: #4300c7; }
       #zdeals-panel #zdeals-search-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
 
-      /* Quick Scan bar */
-      #zdeals-panel .zd-quick-bar { padding: 7px 14px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-      #zdeals-panel #zdeals-quick-scan-btn { background: #ede9fe; color: #5300f8; border: 1px solid #c4b5fd; border-radius: 6px; padding: 4px 9px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.15s ease; white-space: nowrap; }
-      #zdeals-panel #zdeals-quick-scan-btn:hover { background: #ddd6fe; border-color: #a78bfa; }
-      #zdeals-panel #zdeals-quick-scan-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-      #zdeals-panel .zd-quick-hint { font-size: 11px; color: #64748b; }
+      /* Quick Actions row (Quick Scan <51 and Blockbuster Top Picks side-by-side) */
+      #zdeals-panel .zd-quick-actions { display: flex; gap: 8px; padding: 8px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+      #zdeals-panel #zdeals-quick-scan-btn { flex: 1; padding: 7px 6px; background: #ede9fe; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 8px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: all 0.15s ease; white-space: nowrap; }
+      #zdeals-panel #zdeals-quick-scan-btn:hover { background: #e0e7ff; border-color: #a5b4fc; color: #3730a3; }
+      #zdeals-panel #zdeals-quick-scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-      /* Blockbuster 1-Click Scan Bar */
-      #zdeals-panel .zd-blockbuster-box { padding: 9px 14px; background: linear-gradient(135deg, #fdf4ff 0%, #f5f3ff 100%); border-bottom: 1px solid #e9d5ff; }
-      #zdeals-panel #zdeals-blockbuster-btn { width: 100%; padding: 8px 12px; background: linear-gradient(135deg, #7c3aed 0%, #5300f8 100%); color: #ffffff; border: none; border-radius: 8px; font-size: 12.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 6px rgba(83, 0, 248, 0.22); transition: all 0.15s ease; }
-      #zdeals-panel #zdeals-blockbuster-btn:hover { background: linear-gradient(135deg, #6d28d9 0%, #4300c7 100%); box-shadow: 0 4px 10px rgba(83, 0, 248, 0.32); }
-      #zdeals-panel #zdeals-blockbuster-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-      #zdeals-panel .zd-bb-left { display: flex; align-items: center; gap: 7px; }
-      #zdeals-panel .zd-bb-fire { font-size: 15px; line-height: 1; }
-      #zdeals-panel .zd-bb-tag { font-size: 9.5px; background: rgba(255, 255, 255, 0.22); padding: 2px 6px; border-radius: 4px; font-weight: 800; letter-spacing: 0.04em; }
+      /* Milder warm tone for Blockbuster deals */
+      #zdeals-panel #zdeals-blockbuster-btn { flex: 1; padding: 7px 6px; background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 8px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: all 0.15s ease; white-space: nowrap; }
+      #zdeals-panel #zdeals-blockbuster-btn:hover { background: #ffedd5; border-color: #fdba74; color: #9a3412; }
+      #zdeals-panel #zdeals-blockbuster-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
       #zdeals-body { overflow-y: auto; flex: 1; background: #ffffff; }
       #zdeals-panel .zd-cat { padding: 12px 18px; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; font-weight: 500; color: #334155; transition: background 0.15s; }
@@ -1742,10 +1733,7 @@
     panel.innerHTML = `
       <div class="zd-header">
         <span>Zepto Deals</span>
-        <div style="display:flex;gap:6px;">
-          <button class="zd-refresh" id="zdeals-copy-headers" title="Copy signed headers & cookies for GitHub Actions bot">Copy Bot Headers</button>
-          <button class="zd-refresh" id="zdeals-refresh">Reset</button>
-        </div>
+        <button class="zd-refresh" id="zdeals-refresh" title="Reset categories">Reset</button>
       </div>
       <div class="zd-search-bar">
         <div class="zd-search-wrap">
@@ -1753,28 +1741,19 @@
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <input type="text" id="zdeals-search-input" placeholder="Search products (e.g. snacks, oil)..." />
+          <input type="text" id="zdeals-search-input" placeholder="Search products (e.g. sweets, snacks)..." />
           <button id="zdeals-search-clear" style="display:none;" title="Clear">✕</button>
-        </div>
-        <div class="zd-price-wrap" title="Server-side Max Price filter (₹)">
-          <span class="zd-price-symbol">₹</span>
-          <input type="number" id="zdeals-max-price" placeholder="51" value="51" min="1" max="9999" title="Max Price in ₹ (defaults to ₹51 for Page 1 quick scan)" />
         </div>
         <button id="zdeals-search-btn">Search</button>
       </div>
-      <div class="zd-quick-bar">
-        <button id="zdeals-quick-scan-btn" title="Quick Scan Page 1 under ₹51 across popular categories or active keyword">
-          ⚡ Quick Scan &lt;₹51
+      <div class="zd-quick-actions">
+        <button id="zdeals-quick-scan-btn" title="Quick Scan Page 1 under ₹51 across popular categories">
+          <span>⚡</span>
+          <span>Quick Scan &lt;₹51</span>
         </button>
-        <span class="zd-quick-hint">Page 1 Server Filter</span>
-      </div>
-      <div class="zd-blockbuster-box">
         <button id="zdeals-blockbuster-btn" title="Scan Zepto's curated Blockbuster Deals (Top Picks) in 1-click">
-          <div class="zd-bb-left">
-            <span class="zd-bb-fire">🔥</span>
-            <span>Blockbuster Top Picks</span>
-          </div>
-          <span class="zd-bb-tag">⚡ 1-CLICK</span>
+          <span>🔥</span>
+          <span>Blockbuster Picks</span>
         </button>
       </div>
       <div id="zdeals-body"></div>
@@ -1787,12 +1766,23 @@
     const searchInput = document.getElementById('zdeals-search-input');
     const searchBtn = document.getElementById('zdeals-search-btn');
     const searchClear = document.getElementById('zdeals-search-clear');
-    const maxPriceInput = document.getElementById('zdeals-max-price');
     const quickScanBtn = document.getElementById('zdeals-quick-scan-btn');
     const blockbusterBtn = document.getElementById('zdeals-blockbuster-btn');
     const fetchBtn = document.getElementById('zdeals-fetch-btn');
 
-    const QUICK_SCAN_CATEGORIES = ['Snacks', 'Biscuits', 'Beverages', 'Instant Food', 'Chocolates', 'Dairy'];
+    const QUICK_SCAN_CATEGORIES = [
+      'Snacks',
+      'Biscuits',
+      'Beverages',
+      'Chocolates',
+      'Grocery',
+      'Dairy',
+      'Packaged Goods',
+      'Skincare',
+      'Haircare',
+      'Body Care',
+      'Cleaning'
+    ];
 
     searchInput.addEventListener('input', () => {
       searchClear.style.display = searchInput.value.trim() ? 'block' : 'none';
@@ -1809,9 +1799,6 @@
     async function triggerSearch() {
       const q = (searchInput.value || '').trim();
       if (!q) return;
-
-      const maxPriceVal = parseFloat(maxPriceInput ? maxPriceInput.value : '');
-      const maxPrice = (!isNaN(maxPriceVal) && maxPriceVal > 0) ? maxPriceVal : null;
 
       // Deselect any category selections
       selections.clear();
@@ -1833,17 +1820,17 @@
         if (!capturedHeaders) {
           await ensureSessionAtStart(updateStatus);
         }
-        fetchedProductsData = await getSearchResults(q, updateStatus, { maxPrice });
-        currentSearchQuery = maxPrice ? `${q} (≤₹${maxPrice})` : q;
+        fetchedProductsData = await getSearchResults(q, updateStatus);
+        currentSearchQuery = q;
         flatSelectionsData = [];
 
         fetchBtn.dataset.state = 'ready';
         fetchBtn.dataset.mode = 'search';
-        fetchBtn.textContent = `View Results (${fetchedProductsData.length} items for "${q}"${maxPrice ? ` ≤₹${maxPrice}` : ''})`;
+        fetchBtn.textContent = `View Results (${fetchedProductsData.length} items for "${q}")`;
         fetchBtn.disabled = false;
 
         // Auto-open grid tab
-        openResultsTab(`Search: "${q}"${maxPrice ? ` (≤₹${maxPrice})` : ''}`, fetchedProductsData);
+        openResultsTab(`Search: "${q}"`, fetchedProductsData);
       } catch (err) {
         console.error('[zdeals]', err);
         fetchBtn.textContent = 'Search failed. Please retry.';
@@ -1857,10 +1844,8 @@
     }
 
     async function triggerQuickScan() {
-      const maxPriceVal = parseFloat(maxPriceInput ? maxPriceInput.value : '');
-      const maxPrice = (!isNaN(maxPriceVal) && maxPriceVal > 0) ? maxPriceVal : 51;
-      const searchVal = (searchInput.value || '').trim();
-      const targetQueries = searchVal ? [searchVal] : QUICK_SCAN_CATEGORIES;
+      const maxPrice = 51;
+      const targetQueries = QUICK_SCAN_CATEGORIES;
 
       selections.clear();
       document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
@@ -1902,7 +1887,7 @@
         }
 
         fetchedProductsData = allResults.sort((a, b) => b.discountPercent - a.discountPercent);
-        currentSearchQuery = searchVal ? `${searchVal} (≤₹${maxPrice})` : `Quick Deals ≤₹${maxPrice}`;
+        currentSearchQuery = `Quick Deals ≤₹${maxPrice}`;
         flatSelectionsData = [];
 
         fetchBtn.dataset.state = 'ready';
@@ -1910,7 +1895,7 @@
         fetchBtn.textContent = `View Results (${fetchedProductsData.length} items ≤₹${maxPrice})`;
         fetchBtn.disabled = false;
 
-        openResultsTab(searchVal ? `Deals: "${searchVal}" (≤₹${maxPrice})` : `Quick Deals (≤₹${maxPrice})`, fetchedProductsData);
+        openResultsTab(`Quick Deals (≤₹${maxPrice})`, fetchedProductsData);
       } catch (err) {
         console.error('[zdeals]', err);
         fetchBtn.textContent = 'Quick Scan failed. Retry.';
@@ -2029,31 +2014,6 @@
       currentSearchQuery = '';
       resetFetchButton();
       await loadCategoryList(true);
-    });
-
-    document.getElementById('zdeals-copy-headers').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const btn = document.getElementById('zdeals-copy-headers');
-      if (!capturedHeaders) {
-        btn.textContent = 'Syncing...';
-        await ensureSessionAtStart(() => {});
-      }
-      if (!capturedHeaders) {
-        alert('Please click on any category on Zepto first so signed headers can be captured.');
-        btn.textContent = 'Copy Bot Headers';
-        return;
-      }
-      const exportPayload = Object.assign({}, capturedHeaders);
-      if (document.cookie) {
-        exportPayload['cookie'] = document.cookie;
-      }
-      const str = JSON.stringify(exportPayload);
-      navigator.clipboard.writeText(str).then(() => {
-        btn.textContent = '✔ Copied!';
-        setTimeout(() => { btn.textContent = 'Copy Bot Headers'; }, 2500);
-      }).catch(() => {
-        prompt('Copy this JSON and paste into GitHub Secrets as ZEPTO_SESSION_HEADERS:', str);
-      });
     });
 
     fetchBtn.addEventListener('click', async () => {
