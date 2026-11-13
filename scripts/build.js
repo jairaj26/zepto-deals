@@ -19,8 +19,8 @@ let htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
 // Replace bookmarklet button href
 htmlContent = htmlContent.replace(
-  /<a class="bookmarklet-btn" href="javascript:[^"]*">/g,
-  `<a class="bookmarklet-btn" href="${bookmarkletCode}">`
+  /(<a class="bookmarklet-btn"[^>]*href=")javascript:[^"]*(")/g,
+  `$1${bookmarkletCode}$2`
 );
 
 // Replace code variable in <script>
