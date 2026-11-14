@@ -1747,7 +1747,7 @@
         <button id="zdeals-search-btn">Search</button>
       </div>
       <div class="zd-quick-actions">
-        <button id="zdeals-quick-scan-btn" title="Quick Scan Page 1 under ₹51 across popular categories">
+        <button id="zdeals-quick-scan-btn" title="Quick Scan Page 1 under ₹51 across daily essentials">
           <span>⚡</span>
           <span>Quick Scan &lt;₹51</span>
         </button>
@@ -1771,17 +1771,17 @@
     const fetchBtn = document.getElementById('zdeals-fetch-btn');
 
     const QUICK_SCAN_CATEGORIES = [
-      'Snacks',
-      'Biscuits',
-      'Beverages',
-      'Chocolates',
       'Grocery',
       'Dairy',
+      'Masala',
+      'Sauces',
       'Packaged Goods',
+      'Cleaning',
+      'Household',
+      'Oral Care',
       'Skincare',
       'Haircare',
-      'Body Care',
-      'Cleaning'
+      'Body Care'
     ];
 
     searchInput.addEventListener('input', () => {
