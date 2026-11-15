@@ -8,3 +8,8 @@ yarn-error.log*
 Thumbs.db
 *.txt
 !bookmarklet.txt
+deals_state.json
+latest_deals.json
+zepto_scan.log
+chrome_profile/
+__pycache__/

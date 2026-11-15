@@ -9,5 +9,2175 @@
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto_deals.user.js
 // @downloadURL  https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto_deals.user.js
-// @require      https://raw.githubusercontent.com/jairaj26/zepto-deals/main/zepto-deals-bookmarklet.js
 // ==/UserScript==
+
+/**
+ * Zepto Deals Bookmarklet (Zepto Grid UI Architecture)
+ * ---------------------------------------------------
+ * - Modern Zepto-style Product Grid (cards with images, MRP, selling price, discounts, direct links).
+ * - Out of stock (OOS) detection with modern badges, dimmed styling, and filter controls.
+ * - Comprehensive Dropdown Filters: Subcategory, Min-Discount, Availability (In-Stock / OOS), Sort By.
+ * - Multi-source Session & Location Catcher (Body, localStorage, cookies, headers).
+ * - Resilient Recursive Widget Parser (handles all layout containers and grids).
+ * - Two-step fetch button to completely bypass Popup Blockers.
+ * - Instant CSV Export.
+ */
+(function () {
+  'use strict';
+
+  if (window.__zdealsLoaded) {
+    console.log('[zdeals] already loaded');
+    return;
+  }
+  window.__zdealsLoaded = true;
+
+  // ================== Config ==================
+  const STORE_KEY = 'zdeals:store';
+  const CATEGORIES_KEY = 'zdeals:categories';
+  const SUBCATS_PREFIX = 'zdeals:subcategories:';
+  const CATEGORY_TTL_MS = 7 * 24 * 60 * 60 * 1000; 
+  const MAX_SELECTED_PER_CATEGORY = 2; // Strict limit: max 2 subcategories per category
+  const MAX_PAGES_PER_SUBCAT = 20;
+  const ALL_CATEGORIES_LAYOUT_ID = '9277';
+  const DEFAULT_LATITUDE = 12.9716; // Generic Central Bengaluru fallback
+  const DEFAULT_LONGITUDE = 77.5946;
+
+  const BLOCKBUSTER_CATEGORY = {
+    name: 'Blockbuster Deals',
+    categoryId: '19c50c75-5341-4617-8519-686ecb46bba6',
+    subCategoryId: 'f09d83f6-d14b-4402-a12a-a01c7c8738d0',
+    slug: 'blockbuster-deals',
+    isSpecial: true
+  };
+
+  const BLOCKBUSTER_SUBCATEGORIES = [
+    { title: 'Top Picks', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'f09d83f6-d14b-4402-a12a-a01c7c8738d0' },
+    { title: 'Bath & Body', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '7441e990-4677-4c6d-82f8-3e82742575c8' },
+    { title: 'Fragrances', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '60d9be7b-d961-471f-a6ce-17f1d4e127c0' },
+    { title: 'Tea, Coffee & More', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '95a554df-77a5-40b7-b7ba-1a564f4426e9' },
+    { title: 'Skincare', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '3d9d232a-5ac2-4397-bd88-4083027fea9b' },
+    { title: 'Protein & Nutrition', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'b8c3314a-3285-4cab-a06a-14dbe7b987fd' },
+    { title: 'Dairy, Bread & Eggs', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'a7b876e1-deec-457e-ba19-0b1902c9f2ce' },
+    { title: 'Biscuits', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: '0333efaf-3c19-4683-a022-0439c827013e' },
+    { title: 'Cleaning Essentials', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'bf07d520-c29c-4033-9bf6-2cd35656a63b' },
+    { title: 'Masala, Dry Fruits & More', categoryId: '19c50c75-5341-4617-8519-686ecb46bba6', subCategoryId: 'c06f9bcd-fade-465b-a0b9-ec06e367a948' }
+  ];
+
+  let capturedHeaders = null;
+  let capturedLocation = null;
+  let fetchedProductsData = []; 
+  let flatSelectionsData = [];
+  let currentSearchQuery = '';
+
+  function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  // ================== Cryptographic Request Signing & Environment Helpers ==================
+  async function sha256Hex(str) {
+    const buffer = new TextEncoder().encode(str);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  const FALLBACK_STORE_ID = 'c48dd700-4314-4cc1-bffa-e1344e0298dc';
+  const COMPATIBLE_COMPONENTS = ',NEW_BILL_INFO,RE_PROMISE_ETA_ORDER_SCREEN_ENABLED,SUPERSTORE_V1,MANUALLY_APPLIED_DELIVERY_FEE_RECEIVABLE,MARKETPLACE_REPLACEMENT,ZEPTO_PASS:5,CART_REDESIGN_ENABLED,SHIPMENT_WIDGETIZATION_ENABLED,TABBED_CAROUSEL_V2,24X7_ENABLED_V1,PROMO_CASH:0,HOMEPAGE_V2,SUPER_SAVER:1,NO_PLATFORM_CHECK_ENABLED_V2,HP_V4_FEED,GIFT_CARD,SCLP_ADD_MONEY,GIFTING_ENABLED,OFSE,WIDGET_BASED_ETA,PC_REVAMP_1,NEW_ETA_BANNER,NO_COST_EMI_V1,ITEMISATION_ENABLED,SWAP_AND_SAVE_ON_CART,WIDGET_RESTRUCTURE,PRICING_CAMPAIGN_ID,BACHAT_FOR_ALL,TABBED_CAROUSEL_V3,MULTITAB_V2,VERTICAL_FEED_PRODUCT_GRID,CART_LMS:2,SAMPLING_UPSELL_CAMPAIGN,DISCOUNTED_ADDONS_ENABLED,UPSELL_COUPON_SS:0,SIZE_EXCHANGE_ENABLED,ENABLE_FLOATING_CART_BUTTON,SAMPLING_V3,HYBRID_CAMPAIGN,';
+
+  function findStoreId() {
+    const fromCookie = getCookie('store_id') || getCookie('storeId');
+    if (fromCookie && fromCookie.length > 10) return fromCookie;
+
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const val = localStorage.getItem(localStorage.key(i));
+        if (!val) continue;
+        const m = val.match(/"(?:primaryStore|store|primaryStoreId|storeId|store_id)"\s*:\s*(?:\{[^}]*"storeId"\s*:\s*)?"([a-f0-9\-]{36})"/i);
+        if (m && m[1]) return m[1];
+      }
+    } catch (e) {}
+
+    try {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const val = sessionStorage.getItem(sessionStorage.key(i));
+        if (!val) continue;
+        const m = val.match(/"store_?id"\s*:\s*"([a-f0-9\-]{36})"/i);
+        if (m && m[1]) return m[1];
+      }
+    } catch (e) {}
+
+    return FALLBACK_STORE_ID;
+  }
+
+  function findCsrfSecret() {
+    const fromCookie = getCookie('csrfSecret') || getCookie('x-csrf-secret');
+    if (fromCookie) return fromCookie;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const val = localStorage.getItem(localStorage.key(i));
+        if (!val) continue;
+        const m = val.match(/"csrf[_-]?secret"\s*:\s*"([^"]+)"/i);
+        if (m && m[1]) return m[1];
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  function getCookie(name) {
+    try {
+      const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name.replace(/[-[\]{}()*+?.,\\^$|#\\s]/g, '\\$&') + '=([^;]*)'));
+      return match ? decodeURIComponent(match[1]) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function getHeadersFromEnv() {
+    const xsrf = getCookie('XSRF-TOKEN');
+    const csrf = findCsrfSecret();
+    const storeId = findStoreId();
+    const sessionId = getCookie('session_id') || generateUUID();
+    const deviceId = getCookie('unique_browser_id') || generateUUID();
+
+    const headers = {
+      'accept': 'application/json, text/plain, */*',
+      'app_sub_platform': 'WEB',
+      'app_version': '17.6.3',
+      'appversion': '17.6.3',
+      'auth_from_cookie': 'true',
+      'auth_revamp_flow': 'v2',
+      'compatible_components': COMPATIBLE_COMPONENTS,
+      'marketplace_type': 'SUPER_SAVER',
+      'platform': 'WEB',
+      'source': 'DIRECT',
+      'tenant': 'ZEPTO',
+      'device_id': deviceId,
+      'deviceid': deviceId,
+      'session_id': sessionId,
+      'sessionid': sessionId,
+      'store_id': storeId,
+      'storeid': storeId,
+      'store_ids': storeId,
+      'x-without-bearer': 'true'
+    };
+    if (xsrf) headers['x-xsrf-token'] = xsrf;
+    if (csrf) headers['x-csrf-secret'] = csrf;
+    return headers;
+  }
+
+  async function generateSignedHeaders(method, urlPath, bodyStr) {
+    const baseHeaders = capturedHeaders || getHeadersFromEnv();
+    const reqId = generateUUID();
+    const deviceId = (baseHeaders && (baseHeaders['device_id'] || baseHeaders['deviceid'])) || getCookie('unique_browser_id') || generateUUID();
+    const xsrfToken = (baseHeaders && baseHeaders['x-xsrf-token']) || getCookie('XSRF-TOKEN') || '';
+    const csrfSecret = (baseHeaders && baseHeaders['x-csrf-secret']) || findCsrfSecret() || '';
+    const storeId = (baseHeaders && (baseHeaders['store_id'] || baseHeaders['storeid'])) || findStoreId();
+    const sessionId = (baseHeaders && (baseHeaders['session_id'] || baseHeaders['sessionid'])) || getCookie('session_id') || generateUUID();
+    const appVersion = (baseHeaders && (baseHeaders['app_version'] || baseHeaders['appversion'])) || '18.1.1';
+
+    // Exact Zepto BFF gateway signing algorithm:
+    // Keys sorted alphabetically: body, deviceId, method, requestId, secret, url
+    // Joined by "|" and SHA-256 hashed. x-timezone is SHA-256 of the request-signature.
+    const params = {
+      body: typeof bodyStr === 'string' ? bodyStr : (bodyStr ? JSON.stringify(bodyStr) : ''),
+      deviceId: deviceId,
+      method: method.toLowerCase(),
+      requestId: reqId,
+      secret: xsrfToken,
+      url: urlPath
+    };
+    const paramStr = Object.keys(params).sort().reduce((acc, k, idx) => acc + (idx === 0 ? '' : '|') + params[k], '');
+    const signature = await sha256Hex(paramStr);
+    const timezone = await sha256Hex(signature);
+
+    // Build explicit, clean headers. Never carry over ephemeral widget IDs or layout-specific headers (which trigger 429).
+    const headers = {
+      'accept': 'application/json, text/plain, */*',
+      'content-type': 'application/json',
+      'app_sub_platform': 'WEB',
+      'app_version': appVersion,
+      'appversion': appVersion,
+      'auth_from_cookie': 'true',
+      'auth_revamp_flow': 'v2',
+      'compatible_components': COMPATIBLE_COMPONENTS,
+      'marketplace_type': 'SUPER_SAVER',
+      'platform': 'WEB',
+      'source': 'DIRECT',
+      'tenant': 'ZEPTO',
+      'device_id': deviceId,
+      'deviceid': deviceId,
+      'session_id': sessionId,
+      'sessionid': sessionId,
+      'store_id': storeId,
+      'storeid': storeId,
+      'store_ids': storeId,
+      'request-signature': signature,
+      'x-timezone': timezone,
+      'request_id': reqId,
+      'requestid': reqId
+    };
+
+    if (xsrfToken) headers['x-xsrf-token'] = xsrfToken;
+    if (csrfSecret) headers['x-csrf-secret'] = csrfSecret;
+
+    if (baseHeaders && (baseHeaders['authorization'] || baseHeaders['Authorization'])) {
+      headers['authorization'] = baseHeaders['authorization'] || baseHeaders['Authorization'];
+    } else {
+      headers['x-without-bearer'] = 'true';
+    }
+
+    return headers;
+  }
+
+  // ================== Location Discovery ==================
+  function extractLocationFromEnv() {
+    if (capturedLocation) return;
+
+    // 1. Try scanning localStorage for user location / address objects
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.includes('location') || key.includes('address') || key.includes('user_loc') || key.includes('geo'))) {
+          try {
+            const val = JSON.parse(localStorage.getItem(key));
+            if (val && typeof val === 'object') {
+              const lat = val.latitude || val.lat || (val.coords && val.coords.latitude) || (val.location && val.location.latitude);
+              const lon = val.longitude || val.lon || val.lng || (val.coords && val.coords.longitude) || (val.location && val.location.longitude);
+              if (lat && lon && !isNaN(Number(lat)) && !isNaN(Number(lon))) {
+                capturedLocation = { latitude: Number(lat), longitude: Number(lon) };
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+
+    // 2. Try scanning cookies for location cookies
+    try {
+      const matchLat = document.cookie.match(/(?:^|;\s*)(?:user_lat|latitude|lat)=([^;]+)/);
+      const matchLng = document.cookie.match(/(?:^|;\s*)(?:user_lon|longitude|lng|lon)=([^;]+)/);
+      if (matchLat && matchLng) {
+        const lat = parseFloat(matchLat[1]);
+        const lon = parseFloat(matchLng[1]);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          capturedLocation = { latitude: lat, longitude: lon };
+          return;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // ================== Omni-Catcher ==================
+  function installOmniCatcher() {
+    extractLocationFromEnv();
+
+    if (window.__zdealsOmniPatched) return;
+    window.__zdealsOmniPatched = true;
+
+    function sanitizeAndStoreHeaders(rawHeaders) {
+      if (!capturedHeaders) capturedHeaders = {};
+      const allowed = [
+        'authorization', 'x-xsrf-token', 'x-csrf-secret',
+        'session_id', 'sessionid', 'device_id', 'deviceid',
+        'store_id', 'storeid', 'app_version', 'appversion'
+      ];
+      for (const k of allowed) {
+        if (rawHeaders[k]) capturedHeaders[k] = rawHeaders[k];
+      }
+    }
+
+    const origFetch = window.fetch;
+    window.fetch = function(input, init) {
+      try {
+        let url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (url.includes('bff-gateway.zepto.com')) {
+          let headers = {};
+          if (input instanceof Request) input.headers.forEach((v, k) => headers[k.toLowerCase()] = v);
+          if (init && init.headers) {
+            if (init.headers instanceof Headers) init.headers.forEach((v, k) => headers[k.toLowerCase()] = v);
+            else if (Array.isArray(init.headers)) init.headers.forEach(([k, v]) => headers[k.toLowerCase()] = v);
+            else Object.keys(init.headers).forEach(k => headers[k.toLowerCase()] = init.headers[k]);
+          }
+          if (headers['request-signature'] || headers['x-csrf-secret'] || headers['x-xsrf-token']) {
+            sanitizeAndStoreHeaders(headers);
+            extractLocFromBody(init ? init.body : null);
+          }
+        }
+      } catch (e) {}
+      return origFetch.apply(this, arguments);
+    };
+
+    const origOpen = XMLHttpRequest.prototype.open;
+    const origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+    const origSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      this._zUrl = url;
+      this._zHeaders = {};
+      return origOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+      this._zHeaders[name.toLowerCase()] = value;
+      return origSetHeader.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function(body) {
+      if (this._zUrl && this._zUrl.includes('bff-gateway.zepto.com')) {
+        if (this._zHeaders['request-signature'] || this._zHeaders['x-csrf-secret'] || this._zHeaders['x-xsrf-token']) {
+          sanitizeAndStoreHeaders(this._zHeaders);
+          extractLocFromBody(body);
+        }
+      }
+      return origSend.apply(this, arguments);
+    };
+
+    function extractLocFromBody(bodyStr) {
+      try {
+        if (bodyStr && typeof bodyStr === 'string') {
+          const parsed = JSON.parse(bodyStr);
+          if (parsed.latitude && parsed.longitude) {
+            capturedLocation = { latitude: Number(parsed.latitude), longitude: Number(parsed.longitude) };
+          }
+        }
+      } catch (e) {}
+      if (!capturedLocation) extractLocationFromEnv();
+    }
+  }
+
+  // Forward-only navigation sitting on /search triggers signed BFF requests
+  function triggerPhantomNavigation() {
+    function goToSearch() {
+      const searchLink = document.querySelector('a[href^="/search"]');
+      if (searchLink) {
+        searchLink.click();
+      } else {
+        window.history.pushState(null, '', '/search');
+        window.dispatchEvent(new Event('popstate'));
+      }
+    }
+
+    const isSearch = window.location.pathname.includes('/search');
+
+    if (!isSearch) {
+      goToSearch();
+      return;
+    }
+
+    const homeLink = document.querySelector('a[href="/"]');
+    if (homeLink) {
+      homeLink.click();
+    } else {
+      window.history.pushState(null, '', '/');
+      window.dispatchEvent(new Event('popstate'));
+    }
+    setTimeout(goToSearch, 300);
+  }
+
+  function waitForCapture(timeoutMs) {
+    return new Promise(resolve => {
+      const start = Date.now();
+      const timer = setInterval(() => {
+        if (capturedHeaders || (getCookie('store_id') && getCookie('XSRF-TOKEN'))) {
+          clearInterval(timer);
+          resolve(true);
+        } else if (Date.now() - start > timeoutMs) {
+          clearInterval(timer);
+          resolve(Boolean(capturedHeaders || getCookie('XSRF-TOKEN')));
+        }
+      }, 100);
+    });
+  }
+
+  async function ensureSessionAtStart(updateStatusFn) {
+    extractLocationFromEnv();
+    installOmniCatcher();
+    if (capturedHeaders || (findStoreId() !== FALLBACK_STORE_ID && getCookie('XSRF-TOKEN'))) {
+      return true;
+    }
+    updateStatusFn('Syncing secure session...');
+    triggerPhantomNavigation();
+    const success = await waitForCapture(5000);
+    if (success) updateStatusFn('Session synced successfully.');
+    else updateStatusFn('Session timeout. Fetching limited.');
+    await new Promise(r => setTimeout(r, 600)); 
+    return success;
+  }
+
+  // ================== Parsing & Caching ==================
+  function cacheGet(key) { try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; } }
+  function cacheSet(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
+  function isFresh(cachedAt, ttlMs) { return cachedAt && (Date.now() - cachedAt < ttlMs); }
+
+  function extractJsonObjects(text, marker) {
+    const results = [];
+    let searchFrom = 0;
+    while (true) {
+      const start = text.indexOf(marker, searchFrom);
+      if (start === -1) break;
+      const slice = extractBalancedObjectAt(text, start);
+      if (slice) {
+        try { results.push(JSON.parse(slice)); } catch (e) {}
+        searchFrom = start + slice.length;
+      } else searchFrom = start + marker.length;
+    }
+    return results;
+  }
+
+  function extractBalancedObjectAt(text, start) {
+    if (text[start] !== '{') return null;
+    let depth = 0, inString = false, escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    return null;
+  }
+
+  function extractBalanced(text, start, openChar, closeChar) {
+    if (text[start] !== openChar) return null;
+    let depth = 0, inString = false, escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === openChar) depth++;
+      else if (ch === closeChar) {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    return null;
+  }
+
+  function extractKeyValues(text, keyName) {
+    const results = [];
+    const searchPattern = '"' + keyName + '"';
+    let pos = 0;
+    while (true) {
+      const keyIdx = text.indexOf(searchPattern, pos);
+      if (keyIdx === -1) break;
+
+      const colonIdx = text.indexOf(':', keyIdx + searchPattern.length);
+      if (colonIdx === -1) break;
+
+      let valStart = colonIdx + 1;
+      while (valStart < text.length && /\s/.test(text[valStart])) valStart++;
+
+      const firstChar = text[valStart];
+      if (firstChar === '{') {
+        const slice = extractBalanced(text, valStart, '{', '}');
+        if (slice) {
+          try { results.push(JSON.parse(slice)); } catch (e) {}
+          pos = valStart + slice.length;
+          continue;
+        }
+      } else if (firstChar === '[') {
+        const slice = extractBalanced(text, valStart, '[', ']');
+        if (slice) {
+          try { results.push(JSON.parse(slice)); } catch (e) {}
+          pos = valStart + slice.length;
+          continue;
+        }
+      }
+      pos = keyIdx + searchPattern.length;
+    }
+    return results;
+  }
+
+  function slugify(name) { return (name || '').toLowerCase().replace(/&/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-+|-+$)/g, ''); }
+
+  // ================== Fetchers (RSC & BFF) ==================
+  async function fetchZeptoPage(path, attempt = 1) {
+    const url = 'https://www.zepto.com' + path;
+    let res = await fetch(url, { credentials: 'include', headers: { accept: '*/*', rsc: '1' } });
+    let text = await res.text();
+    const redirectMatch = text.match(/NEXT_REDIRECT;(?:replace|push);([^;]+);/);
+    if (redirectMatch && attempt < 3) return fetchZeptoPage(redirectMatch[1], attempt + 1);
+    if (!res.ok || text.length < 200) {
+      res = await fetch(url, { credentials: 'include' });
+      text = await res.text();
+    }
+    if (!res.ok) throw new Error(`[zdeals] fetch failed: ${res.status}`);
+    return text;
+  }
+
+  async function fetchAllCategoriesRaw() {
+    const text = await fetchZeptoPage(`/pip/all-categories/${ALL_CATEGORIES_LAYOUT_ID}`);
+    const tiles = extractJsonObjects(text, '{"deeplinkUrl"');
+    const categories = [];
+    for (const tile of tiles) {
+      const m = /Categories\?categoryId=([0-9a-f-]{36})&subCategoryId=([0-9a-f-]{36})/.exec(tile.deeplinkUrl || '');
+      if (m) categories.push({ name: tile.name, categoryId: m[1], subCategoryId: m[2] });
+    }
+    return { categories };
+  }
+
+  async function getCategories(forceRefresh) {
+    let categories = [];
+    if (!forceRefresh) {
+      const cached = cacheGet(CATEGORIES_KEY);
+      if (cached && isFresh(cached.cachedAt, CATEGORY_TTL_MS)) categories = cached.categories;
+    }
+    if (!categories || categories.length === 0) {
+      const res = await fetchAllCategoriesRaw();
+      categories = res.categories || [];
+      cacheSet(CATEGORIES_KEY, { categories, cachedAt: Date.now() });
+    }
+    // Filter out any existing blockbuster deals from layout to avoid duplicates
+    const cleanList = categories.filter(c => 
+      c.categoryId !== BLOCKBUSTER_CATEGORY.categoryId && 
+      (c.name || '').toLowerCase() !== 'blockbuster deals'
+    );
+    // Return Blockbuster Deals pinned at top, followed by standard categories
+    return [BLOCKBUSTER_CATEGORY, ...cleanList];
+  }
+
+  async function getSubcategories(category, forceRefresh) {
+    if (category.isSpecial || category.categoryId === BLOCKBUSTER_CATEGORY.categoryId) {
+      const key = SUBCATS_PREFIX + category.categoryId;
+      if (!forceRefresh) {
+        const cached = cacheGet(key);
+        // Location-sensitive: 1 hour cache TTL for blockbuster deals
+        if (cached && isFresh(cached.cachedAt, 60 * 60 * 1000)) return cached.tabs;
+      }
+      try {
+        const text = await fetchZeptoPage(`/cn/blockbuster-deals/top-picks/cid/${category.categoryId}/scid/${category.subCategoryId}`);
+        const tabs = extractJsonObjects(text, '{"activeIcon"')
+          .map(t => t.params ? { title: t.title, categoryId: t.params.category_id, subCategoryId: t.params.subcategory_id } : null)
+          .filter(Boolean);
+        if (tabs && tabs.length > 0) {
+          cacheSet(key, { tabs, cachedAt: Date.now() });
+          return tabs;
+        }
+      } catch (e) {
+        console.warn('[zdeals] Live blockbuster fetch failed, using pre-seeded subcategories:', e);
+      }
+      return BLOCKBUSTER_SUBCATEGORIES;
+    }
+
+    const key = SUBCATS_PREFIX + category.categoryId;
+    if (!forceRefresh) {
+      const cached = cacheGet(key);
+      if (cached && isFresh(cached.cachedAt, CATEGORY_TTL_MS)) return cached.tabs;
+    }
+    const slug = slugify(category.name);
+    const text = await fetchZeptoPage(`/cn/${slug}/all/cid/${category.categoryId}/scid/${category.subCategoryId}`);
+    const tabs = extractJsonObjects(text, '{"activeIcon"')
+      .map(t => t.params ? { title: t.title, categoryId: t.params.category_id, subCategoryId: t.params.subcategory_id } : null)
+      .filter(Boolean);
+    
+    if (tabs.length > 0) cacheSet(key, { tabs, cachedAt: Date.now() });
+    return tabs;
+  }
+
+  async function fetchBffPage(body) {
+    const urlPath = '/lms/api/v2/get_page';
+    const bodyStr = JSON.stringify(body);
+    const reqHeaders = await generateSignedHeaders('POST', urlPath, bodyStr);
+    const res = await fetch('https://bff-gateway.zepto.com' + urlPath, {
+      method: 'POST', headers: reqHeaders, credentials: 'include', mode: 'cors',
+      body: bodyStr
+    });
+    if (!res.ok) throw new Error('BFF HTTP ' + res.status);
+    return res.json();
+  }
+
+  // Resilient recursive product extractor across all layout widgets with image, OOS & price limit parsing
+  function extractProductsFromWidgets(widgets, category, subcategory, requireDiscount = true, maxPrice = null) {
+    const products = [];
+    const seenPvid = new Set();
+
+    function parseProductNode(p, subcatName) {
+      if (!p) return;
+      const prod = p.product || (p.productResponse && p.productResponse.product) || (p.item && p.item.product) || p;
+      const variant = p.productVariant || (p.productResponse && p.productResponse.productVariant) || (p.item && p.item.productVariant) || p;
+
+      const mrp = (p.mrp || (variant && variant.mrp) || 0) / 100;
+      const price = (p.discountedSellingPrice || p.sellingPrice || (variant && variant.discountedSellingPrice) || (variant && variant.sellingPrice) || mrp || 0) / 100;
+
+      // Strict validation: Reject non-products, banner headlines, media items
+      if (price <= 0 || mrp <= 0) return;
+
+      // Price limit guard (e.g. maxPrice = 51)
+      if (maxPrice !== null && maxPrice !== undefined && maxPrice > 0 && price > maxPrice) {
+        return;
+      }
+
+      const pvid = (variant && variant.id) || p.id || (prod && prod.id);
+      if (pvid && seenPvid.has(pvid)) return;
+      if (pvid) seenPvid.add(pvid);
+
+      const name = (prod && prod.name) || (p && p.name) || '';
+      if (!name || !name.trim()) return;
+
+      // Accurate Out-of-Stock check
+      const isOutOfStock = Boolean(
+        p.outOfStock || 
+        (variant && variant.outOfStock) || 
+        p.isOutOfStock ||
+        (variant && variant.inventory && variant.inventory.quantity <= 0) ||
+        (variant && variant.quantity === 0) ||
+        p.availableQuantity === 0 ||
+        (variant && variant.isActive === false) ||
+        p.isActive === false
+      );
+
+      let discountPercent = p.discountPercent !== undefined ? p.discountPercent : (variant && variant.discountPercent);
+      if ((discountPercent === undefined || discountPercent === null) && mrp > 0 && price > 0 && mrp > price) {
+        discountPercent = Math.round(((mrp - price) / mrp) * 100);
+      }
+      if (discountPercent === undefined || discountPercent === null || isNaN(discountPercent)) {
+        discountPercent = 0;
+      }
+
+      // In category browsing require discount > 0 or flash deal price <= 5; in search include all matching items
+      if (!requireDiscount || discountPercent > 0 || price <= 5) {
+        const productSlug = (prod && prod.slug) || slugify(name);
+        const variantId = (variant && variant.id) || '';
+        const productUrl = variantId ? `https://www.zepto.com/pn/${productSlug}/pvid/${variantId}` : `https://www.zepto.com/pn/${productSlug}`;
+
+        // Resolve Image URL
+        let imgPath = '';
+        if (variant && Array.isArray(variant.images) && variant.images.length > 0) {
+          imgPath = variant.images[0].path || variant.images[0].name || '';
+        } else if (prod && Array.isArray(prod.images) && prod.images.length > 0) {
+          imgPath = prod.images[0].path || prod.images[0].name || '';
+        } else if (Array.isArray(p.images) && p.images.length > 0) {
+          imgPath = p.images[0].path || p.images[0].url || '';
+        } else if (p.image) {
+          imgPath = typeof p.image === 'string' ? p.image : (p.image.path || p.image.url || '');
+        }
+
+        let imageUrl = '';
+        if (imgPath) {
+          if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
+            imageUrl = imgPath;
+          } else {
+            const cleanPath = imgPath.startsWith('/') ? imgPath.slice(1) : imgPath;
+            if (cleanPath.startsWith('production/')) {
+              imageUrl = `https://cdn.zeptonow.com/${cleanPath}`;
+            } else if (cleanPath.startsWith('cms/')) {
+              imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/${cleanPath}`;
+            } else if (!cleanPath.includes('/')) {
+              imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/cms/product_variant/${cleanPath}`;
+            } else {
+              imageUrl = `https://cdn.zeptonow.com/production/tr:w-360,f-auto,q-70/${cleanPath}`;
+            }
+          }
+        }
+
+        products.push({
+          id: pvid || '',
+          name: name,
+          brand: (prod && prod.brand) || '',
+          packSize: (variant && variant.formattedPacksize) || (p && p.formattedPacksize) || '',
+          mrp: mrp,
+          price: price,
+          discountPercent: discountPercent,
+          category: (category && category.name) || '',
+          subcategory: (subcategory && subcategory.title) || subcatName || '',
+          url: productUrl,
+          imageUrl: imageUrl,
+          isOutOfStock: isOutOfStock
+        });
+      }
+    }
+
+    function traverse(list) {
+      if (!Array.isArray(list)) return;
+      for (const w of list) {
+        if (!w) continue;
+        const wName = String(w.widgetName || '');
+        const wId = String(w.widgetId || '');
+
+        // Ignore cross-sell / recommendation carousels that inject unrelated/unfiltered items
+        if (wName.includes('CROSS_SELL') || wId.includes('CROSS_SELL')) continue;
+        // Ignore pure layout title or filter headers
+        if (wId === 'TITLE_WIDGET' || wId === 'TOP_FILTERS_WIDGET') continue;
+
+        const resolverItems = (w.data && w.data.resolver && w.data.resolver.data && Array.isArray(w.data.resolver.data.items))
+          ? w.data.resolver.data.items
+          : [];
+
+        const directItems = (w.data && Array.isArray(w.data.items)) ? w.data.items : 
+                            (w.data && Array.isArray(w.data.products) ? w.data.products : 
+                            (Array.isArray(w.items) ? w.items : 
+                            (Array.isArray(w.products) ? w.products : [])));
+
+        const rawItemList = [...resolverItems, ...directItems];
+
+        for (const item of rawItemList) {
+          if (!item) continue;
+
+          // Type A: Standard Search Product Response (item.productResponse)
+          if (item.productResponse) {
+            parseProductNode(item.productResponse, (subcategory && subcategory.title) || wName);
+          }
+          // Type B: Contextual Ad Cards (item.items -> subitem.data)
+          else if (Array.isArray(item.items)) {
+            for (const sub of item.items) {
+              if (sub && sub.type === 'MEDIA_ITEM') continue; // Skip banner/video ad items
+              if (sub && sub.data && (sub.data.product || sub.data.sellingPrice || sub.data.productVariant)) {
+                parseProductNode(sub.data, (subcategory && subcategory.title) || wName);
+              }
+            }
+          }
+          // Type C: Direct Product Item
+          else if (item.product || item.productVariant || item.sellingPrice) {
+            parseProductNode(item.data || item, (subcategory && subcategory.title) || wName);
+          }
+        }
+
+        if (w.widgets && Array.isArray(w.widgets)) traverse(w.widgets);
+        if (w.data && w.data.widgets && Array.isArray(w.data.widgets)) traverse(w.data.widgets);
+      }
+    }
+
+    traverse(widgets);
+    return products;
+  }
+
+  async function getDeals(category, subcategory, updateStatusFn, maxPages = MAX_PAGES_PER_SUBCAT) {
+    if (!capturedHeaders && !getCookie('store_id') && !getCookie('XSRF-TOKEN')) {
+      throw new Error('[zdeals] no session headers captured — cannot fetch deals');
+    }
+
+    const products = [];
+    const seenKeys = new Set();
+    let body = {
+      page_type: 'SUBCATEGORY', version: 'v2',
+      latitude: (capturedLocation && capturedLocation.latitude) ? capturedLocation.latitude : DEFAULT_LATITUDE,
+      longitude: (capturedLocation && capturedLocation.longitude) ? capturedLocation.longitude : DEFAULT_LONGITUDE,
+      category_id: category.categoryId, subcategory_id: subcategory.subCategoryId,
+      page_size: 20, page_identifier: 'browse_category_product',
+      filter_id: '0', subcategory_intent_id: '0',
+      ads_end_range: 0, ads_start_range: 0, atlas_offset: 0,
+      disable_tabs: true, eta_raining: false, infinite_feed_widget_id: 0,
+      is_continuous_feed: true, last_widget_id: 0, oos_end_range: 0, oos_start_range: 0, page_number: 1
+    };
+
+    let page = 1;
+    while (page <= maxPages) {
+      updateStatusFn(`Extracting: ${subcategory.title} (Page ${page})`);
+      if (page > 1) {
+        await new Promise(r => setTimeout(r, 500 + Math.random() * 700));
+      }
+
+      let data;
+      try {
+        data = await fetchBffPage(body);
+      } catch (e) {
+        break;
+      }
+
+      const widgets = (data.pageLayout && data.pageLayout.widgets) || [];
+      const extracted = extractProductsFromWidgets(widgets, category, subcategory, true);
+      for (const item of extracted) {
+        const key = item.id || item.url || (item.name + ':' + item.price);
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          products.push(item);
+        }
+      }
+
+      const endOfPage = data.pageLayout && data.pageLayout.endOfPage;
+      const nextParams = data.pageLayout && data.pageLayout.nextPageParams;
+      if (endOfPage || !nextParams) break;
+
+      body = Object.assign({}, body, nextParams);
+      page++;
+    }
+    return products;
+  }
+
+  async function getDealsForSelection(selections, updateStatusFn) {
+    const all = [];
+    const seenKeys = new Set();
+    for (let i = 0; i < selections.length; i++) {
+      if (i > 0) {
+        await new Promise(r => setTimeout(r, 600 + Math.random() * 800));
+      }
+      const { category, subcategory } = selections[i];
+      const products = await getDeals(category, subcategory, updateStatusFn);
+      for (const p of products) {
+        const key = p.id || p.url || (p.name + ':' + p.price);
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          all.push(p);
+        }
+      }
+    }
+    return all.sort((a, b) => b.discountPercent - a.discountPercent);
+  }
+
+  // ================== Search API Service ==================
+  async function searchBff(query, pageNumber, options = {}) {
+    const urlPath = '/user-search-service/api/v3/search';
+    const sessionId = (capturedHeaders && (capturedHeaders['session_id'] || capturedHeaders['sessionid'])) || getCookie('session_id') || generateUUID();
+    const body = {
+      query: query,
+      pageNumber: pageNumber,
+      intentId: generateUUID(),
+      mode: 'AUTOSUGGEST',
+      userSessionId: sessionId
+    };
+
+    // Server-side Range / Price Filter (BFF User Search Service v3)
+    if (options.maxPrice !== undefined && options.maxPrice !== null && !isNaN(options.maxPrice) && options.maxPrice > 0) {
+      body.filterId = generateUUID();
+      body.rangeFilters = {
+        price: {
+          min: options.minPrice !== undefined ? Number(options.minPrice) : 0,
+          max: Number(options.maxPrice)
+        }
+      };
+      body.requestMeta = {
+        filterMode: 1
+      };
+    }
+
+    const bodyStr = JSON.stringify(body);
+    const reqHeaders = await generateSignedHeaders('POST', urlPath, bodyStr);
+
+    const res = await fetch('https://bff-gateway.zepto.com' + urlPath, {
+      method: 'POST',
+      headers: reqHeaders,
+      credentials: 'include',
+      mode: 'cors',
+      body: bodyStr
+    });
+    if (!res.ok) throw new Error('Search HTTP ' + res.status);
+    return res.json();
+  }
+
+  // RSC-based Search Fallback (Zero auth, same-origin, bypasses BFF signature verification)
+  async function searchRsc(query) {
+    const url = '/search?query=' + encodeURIComponent(query);
+    const text = await fetchZeptoPage(url);
+    const category = { name: 'Search' };
+    const subcategory = { title: `"${query}"` };
+
+    let widgets = [];
+
+    // 1. Extract direct productResponse items (standard Next.js RSC search payload)
+    const directResponses = extractKeyValues(text, 'productResponse');
+    if (directResponses.length > 0) {
+      widgets.push({ data: { items: directResponses.map(pr => ({ productResponse: pr })) } });
+    }
+
+    // 2. Extract direct productVariant items
+    const directVariants = extractKeyValues(text, 'productVariant');
+    if (directVariants.length > 0) {
+      widgets.push({ data: { items: directVariants.map(pv => ({ productVariant: pv })) } });
+    }
+
+    // 3. Extract layout / widgets arrays
+    const widgetLists = extractKeyValues(text, 'widgets');
+    for (const wl of widgetLists) {
+      if (Array.isArray(wl)) widgets.push(...wl);
+    }
+
+    // 4. Extract pageLayout objects
+    const pageLayouts = extractKeyValues(text, 'pageLayout');
+    for (const pl of pageLayouts) {
+      if (pl && Array.isArray(pl.widgets)) widgets.push(...pl.widgets);
+    }
+
+    // 5. Extract layout arrays/objects
+    const layouts = extractKeyValues(text, 'layout');
+    for (const l of layouts) {
+      if (Array.isArray(l)) widgets.push(...l);
+      else if (l && Array.isArray(l.widgets)) widgets.push(...l.widgets);
+    }
+
+    // 6. Extract items array
+    const itemArrays = extractKeyValues(text, 'items');
+    for (const items of itemArrays) {
+      if (Array.isArray(items)) {
+        widgets.push({ data: { items: items } });
+      }
+    }
+
+    return extractProductsFromWidgets(widgets, category, subcategory, false);
+  }
+
+  const MAX_SEARCH_PAGES = 4;
+  async function getSearchResults(query, updateStatusFn, options = {}) {
+    const products = [];
+    const category = { name: 'Search' };
+    const maxPrice = options.maxPrice ? Number(options.maxPrice) : null;
+    const subcategory = { title: maxPrice ? `"${query}" (≤₹${maxPrice})` : `"${query}"` };
+    let bffFailed = false;
+    let bffSucceeded = false;
+
+    // Check if session headers are present for BFF search; if missing, fall back to RSC directly
+    const hasBffHeaders = Boolean(capturedHeaders || getCookie('XSRF-TOKEN') || getCookie('store_id') || findStoreId());
+
+    // Respect maxPages option (default 2 when maxPrice is active, or MAX_SEARCH_PAGES otherwise)
+    const maxPagesToFetch = options.maxPages || (maxPrice ? 2 : MAX_SEARCH_PAGES);
+
+    if (hasBffHeaders) {
+      for (let page = 0; page < maxPagesToFetch; page++) {
+        updateStatusFn(`Searching: "${query}" (Page ${page + 1}${maxPrice ? ` ≤₹${maxPrice}` : ''})`);
+        if (page > 0) {
+          await new Promise(r => setTimeout(r, 400 + Math.random() * 500));
+        }
+
+        let data;
+        try {
+          data = await searchBff(query, page, { maxPrice });
+        } catch (e) {
+          console.warn(`[zdeals] BFF search failed on page ${page}:`, e);
+          if (page === 0) {
+            bffFailed = true;
+          }
+          break;
+        }
+
+        if (!data) break;
+        bffSucceeded = true;
+
+        // Search returns array in data.layout directly!
+        let widgets = [];
+        if (Array.isArray(data.layout)) {
+          widgets = data.layout;
+        } else if (data.pageLayout && Array.isArray(data.pageLayout.widgets)) {
+          widgets = data.pageLayout.widgets;
+        } else if (data.layout && Array.isArray(data.layout.widgets)) {
+          widgets = data.layout.widgets;
+        } else if (Array.isArray(data.widgets)) {
+          widgets = data.widgets;
+        }
+
+        const directItems = (data.data && Array.isArray(data.data.items)) ? data.data.items :
+                            (Array.isArray(data.items) ? data.items : 
+                            (data.data && Array.isArray(data.data.products)) ? data.data.products : []);
+
+        if (directItems.length > 0) {
+          widgets.push({ data: { items: directItems } });
+        }
+
+        if (widgets.length === 0) {
+          break;
+        }
+
+        const extracted = extractProductsFromWidgets(widgets, category, subcategory, false, maxPrice);
+        products.push(...extracted);
+
+        if (data.endOfPage || (data.data && data.data.endOfPage) || (data.pageLayout && data.pageLayout.endOfPage) || data.hasReachedEnd) {
+          break;
+        }
+      }
+    } else {
+      bffFailed = true;
+    }
+
+    // Transparent RSC fallback only if BFF failed or wasn't reachable and returned no items
+    if (bffFailed || (!bffSucceeded && products.length === 0)) {
+      updateStatusFn(`Searching via Next.js RSC: "${query}"...`);
+      try {
+        const rscProducts = await searchRsc(query);
+        if (rscProducts && rscProducts.length > 0) {
+          const filteredRsc = maxPrice ? rscProducts.filter(p => p.price <= maxPrice) : rscProducts;
+          products.push(...filteredRsc);
+        }
+      } catch (rscErr) {
+        console.warn('[zdeals] RSC search fallback failed:', rscErr);
+      }
+    }
+
+    const seen = new Set();
+    const deduped = [];
+    for (const p of products) {
+      const key = p.id || p.url || (p.name + ':' + p.price);
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(p);
+      }
+    }
+    return deduped.sort((a, b) => b.discountPercent - a.discountPercent);
+  }
+
+  // ================== Zepto Grid Results Rendering ==================
+  function openResultsTab(title, products) {
+    const subcats = Array.from(new Set(products.map(p => p.subcategory).filter(Boolean)));
+    const subcatOptions = subcats.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+
+    const inStockCount = products.filter(p => !p.isOutOfStock).length;
+    const oosCount = products.filter(p => p.isOutOfStock).length;
+
+    const cardsHtml = products.map(p => `
+      <div class="product-card ${p.isOutOfStock ? 'oos' : ''}" 
+           data-name="${escapeHtml(p.name)}" 
+           data-brand="${escapeHtml(p.brand)}" 
+           data-subcat="${escapeHtml(p.subcategory)}" 
+           data-mrp="${p.mrp}" 
+           data-price="${p.price}" 
+           data-discount="${p.discountPercent}" 
+           data-oos="${p.isOutOfStock ? '1' : '0'}"
+           data-url="${escapeHtml(p.url || '#')}">
+        
+        <div class="card-badges">
+          ${p.isOutOfStock ? `<span class="badge-oos">OUT OF STOCK</span>` : `<span></span>`}
+          ${p.discountPercent > 0 ? `<span class="badge-discount">${p.discountPercent}% OFF</span>` : `<span></span>`}
+        </div>
+
+        <a href="${escapeHtml(p.url || '#')}" target="_blank" rel="noopener noreferrer" class="card-image-wrap" title="View ${escapeHtml(p.name)} on Zepto">
+          <img src="${escapeHtml(p.imageUrl || 'https://cdn.zeptonow.com/web-static-assets-prod/artifacts/17.3.0/favicon.png')}" 
+               alt="${escapeHtml(p.name)}" 
+               class="prod-img" 
+               loading="lazy" 
+               onerror="this.onerror=null;this.src='https://cdn.zeptonow.com/web-static-assets-prod/artifacts/17.3.0/favicon.png';this.style.objectFit='contain';">
+        </a>
+
+        <div class="card-body">
+          <div class="card-meta">
+            <span class="badge-subcat">${escapeHtml(p.subcategory)}</span>
+            ${p.packSize ? `<span class="pack-size">${escapeHtml(p.packSize)}</span>` : ''}
+          </div>
+          
+          <a href="${escapeHtml(p.url || '#')}" target="_blank" rel="noopener noreferrer" class="prod-title" title="${escapeHtml(p.name)}">
+            ${escapeHtml(p.name)}
+          </a>
+          
+          ${p.brand ? `<div class="prod-brand">${escapeHtml(p.brand)}</div>` : ''}
+
+          <div class="price-row">
+            <div class="price-main">
+              <span class="selling-price">₹${p.price.toFixed(2)}</span>
+              <span class="mrp-price">₹${p.mrp.toFixed(2)}</span>
+            </div>
+            ${(p.mrp > p.price) ? `<div class="save-badge">Save ₹${(p.mrp - p.price).toFixed(2)}</div>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)} — Zepto Deals</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px 18px; background: #f8fafc; color: #0f172a; }
+  .container { max-width: 1440px; margin: 0 auto; }
+  
+  /* Header Area */
+  .header-card { 
+    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; 
+    padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;
+  }
+  .brand-tag {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em; color: #0c831f; background: #ecfdf5;
+    padding: 3px 10px; border-radius: 9999px; margin-bottom: 6px;
+  }
+  h1 { font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em; }
+  .meta-info { font-size: 13.5px; color: #64748b; font-weight: 500; margin-top: 3px; }
+  
+  .actions-group { display: flex; align-items: center; gap: 12px; }
+  .btn-export {
+    display: inline-flex; align-items: center; gap: 8px; background: #0f172a; color: #ffffff;
+    padding: 10px 18px; border-radius: 10px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    border: none; transition: all 0.2s ease; text-decoration: none; box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+  }
+  .btn-export:hover { background: #334155; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+
+  /* Filters Bar */
+  .controls-bar {
+    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;
+    padding: 16px 20px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  }
+  
+  .search-wrap {
+    flex: 2; min-width: 260px; position: relative;
+  }
+  .search-wrap svg {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none;
+  }
+  input#search {
+    width: 100%; padding: 10px 14px 10px 38px; font-size: 14px; font-family: inherit;
+    border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; color: #0f172a;
+    transition: all 0.2s ease; outline: none;
+  }
+  input#search:focus { background: #ffffff; border-color: #0c831f; box-shadow: 0 0 0 3px rgba(12, 131, 31, 0.12); }
+  
+  .dropdown-group {
+    display: flex; flex-wrap: wrap; gap: 10px; flex: 3; min-width: 320px;
+  }
+  .filter-item {
+    display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px;
+  }
+  .filter-label {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;
+  }
+  select.filter-select {
+    width: 100%; padding: 9px 12px; font-size: 13.5px; font-family: inherit;
+    border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; color: #334155;
+    outline: none; cursor: pointer; transition: all 0.2s; font-weight: 500;
+  }
+  select.filter-select:focus { border-color: #0c831f; box-shadow: 0 0 0 3px rgba(12, 131, 31, 0.12); }
+
+  .count-banner {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; padding: 0 4px;
+  }
+  .items-counter {
+    font-size: 14px; font-weight: 600; color: #334155;
+  }
+  .items-counter span { color: #0c831f; font-weight: 700; }
+  .stock-pill-group { display: flex; gap: 8px; }
+  .stock-pill {
+    font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 9999px;
+  }
+  .stock-pill.instock { background: #dcfce7; color: #166534; }
+  .stock-pill.oos { background: #fee2e2; color: #991b1b; }
+
+  /* Product Grid Layout - 5 Items In A Row */
+  .grid-wrap {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  @media (max-width: 1300px) {
+    .grid-wrap {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+  }
+
+  @media (max-width: 1100px) {
+    .grid-wrap {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+  }
+
+  @media (max-width: 860px) {
+    .grid-wrap {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .grid-wrap {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+  }
+
+  /* Zepto Product Card */
+  .product-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  }
+  .product-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+    border-color: #cbd5e1;
+  }
+
+  /* Badges: Top Right Green Discount & Top Left OOS */
+  .card-badges {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .badge-discount {
+    margin-left: auto;
+    background: #0c831f; /* Zepto Brand Green */
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 7px;
+    border-radius: 6px;
+    box-shadow: 0 2px 5px rgba(12, 131, 31, 0.25);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .badge-oos {
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 7px;
+    border-radius: 6px;
+    letter-spacing: 0.04em;
+    box-shadow: 0 2px 5px rgba(239, 68, 68, 0.25);
+  }
+
+  /* Out of Stock Card State */
+  .product-card.oos {
+    border-color: #fca5a5;
+    background: #fffafa;
+  }
+  .product-card.oos .prod-img {
+    opacity: 0.5;
+    filter: grayscale(40%);
+  }
+  .product-card.oos .selling-price {
+    color: #64748b;
+  }
+
+  /* Card Image Area (Centered) */
+  .card-image-wrap {
+    position: relative;
+    width: 100%;
+    height: 170px;
+    background: #ffffff;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin-bottom: 10px;
+    text-decoration: none;
+  }
+  .prod-img {
+    max-width: 85%;
+    max-height: 85%;
+    object-fit: contain;
+    margin: auto;
+    display: block;
+  }
+
+  /* Card Body */
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+  .card-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    gap: 6px;
+  }
+  .badge-subcat {
+    font-size: 11px;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #475569;
+    padding: 2px 6px;
+    border-radius: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pack-size {
+    font-size: 11.5px;
+    color: #64748b;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .prod-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #0f172a;
+    text-decoration: none;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 36px;
+    margin-bottom: 4px;
+    transition: color 0.15s;
+  }
+  .prod-title:hover {
+    color: #0c831f;
+  }
+  .prod-brand {
+    font-size: 11.5px;
+    color: #94a3b8;
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* Price Area */
+  .price-row {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px dashed #f1f5f9;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 0;
+  }
+  .price-main {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .selling-price {
+    font-size: 17px;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+  }
+  .mrp-price {
+    font-size: 12.5px;
+    color: #94a3b8;
+    text-decoration: line-through;
+    font-weight: 500;
+  }
+  .save-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: #15803d;
+    background: #dcfce7;
+    padding: 2px 6px;
+    border-radius: 5px;
+  }
+
+  /* Empty state */
+  .empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px 20px;
+    background: #ffffff;
+    border-radius: 16px;
+    border: 1px solid #e2e8f0;
+    color: #64748b;
+    display: none;
+  }
+  .empty-state h3 { font-size: 18px; color: #1e293b; margin-bottom: 6px; }
+
+  @media (max-width: 768px) {
+    body { padding: 16px 12px; }
+    .header-card { padding: 16px; }
+    .controls-bar { flex-direction: column; align-items: stretch; }
+    .dropdown-group { min-width: auto; }
+    .grid-wrap { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+    .card-image-wrap { height: 140px; }
+    .selling-price { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    
+    <!-- Top Header -->
+    <div class="header-card">
+      <div>
+        <div class="brand-tag">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          Zepto Deals Hub
+        </div>
+        <h1>${escapeHtml(title)}</h1>
+        <div class="meta-info">Real-time discounted inventory extracted directly from Zepto</div>
+      </div>
+      <div class="actions-group">
+        <button id="btn-export-csv" class="btn-export">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Export CSV
+        </button>
+      </div>
+    </div>
+
+    <!-- Filters & Controls Bar -->
+    <div class="controls-bar">
+      <div class="search-wrap">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input id="search" type="text" placeholder="Search by product name or brand...">
+      </div>
+
+      <div class="dropdown-group">
+        <div class="filter-item">
+          <label class="filter-label" for="filter-subcat">Category</label>
+          <select id="filter-subcat" class="filter-select">
+            <option value="">All Subcategories</option>
+            ${subcatOptions}
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <label class="filter-label" for="filter-min-discount">Min Discount</label>
+          <select id="filter-min-discount" class="filter-select">
+            <option value="0">All Discounts</option>
+            <option value="15">15%+ Off</option>
+            <option value="25">25%+ Off</option>
+            <option value="35">35%+ Off</option>
+            <option value="50">50%+ Off</option>
+            <option value="70">70%+ Off</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <label class="filter-label" for="filter-max-price">Max Price (₹)</label>
+          <input id="filter-max-price" type="number" class="filter-select" placeholder="e.g. 51" min="1" max="9999" style="width: 90px; padding: 6px 10px;">
+        </div>
+
+        <div class="filter-item">
+          <label class="filter-label" for="filter-availability">Availability</label>
+          <select id="filter-availability" class="filter-select">
+            <option value="all">All Items</option>
+            <option value="instock">In Stock Only</option>
+            <option value="oos">Out of Stock Only</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <label class="filter-label" for="filter-sort">Sort By</label>
+          <select id="filter-sort" class="filter-select">
+            <option value="discount-desc">Discount: High to Low</option>
+            <option value="price-asc">Price: Low to High</option>
+            <option value="price-desc">Price: High to Low</option>
+            <option value="mrp-desc">MRP: High to Low</option>
+            <option value="name-asc">Name: A to Z</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Count Summary -->
+    <div class="count-banner">
+      <div class="items-counter">
+        Showing <span id="visible-count">${products.length}</span> of ${products.length} items
+      </div>
+      <div class="stock-pill-group">
+        <span class="stock-pill instock">${inStockCount} In Stock</span>
+        <span class="stock-pill oos">${oosCount} Out of Stock</span>
+      </div>
+    </div>
+
+    <!-- Product Grid -->
+    <div class="grid-wrap" id="product-grid">
+      ${cardsHtml}
+      <div class="empty-state" id="empty-state">
+        <h3>No matching deals found</h3>
+        <p>Try adjusting your search query, discount threshold, or category filter.</p>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+  const rawProducts = ${JSON.stringify(products).replace(/</g, '\\u003c')};
+  const grid = document.getElementById('product-grid');
+  const searchInput = document.getElementById('search');
+  const subcatSelect = document.getElementById('filter-subcat');
+  const discountSelect = document.getElementById('filter-min-discount');
+  const maxPriceFilter = document.getElementById('filter-max-price');
+  const availabilitySelect = document.getElementById('filter-availability');
+  const sortSelect = document.getElementById('filter-sort');
+  const visibleCountEl = document.getElementById('visible-count');
+  const emptyStateEl = document.getElementById('empty-state');
+
+  const allCards = Array.from(grid.querySelectorAll('.product-card'));
+
+  function applyFiltersAndSort() {
+    const q = (searchInput.value || '').toLowerCase().trim();
+    const selectedSubcat = subcatSelect.value;
+    const minDisc = parseFloat(discountSelect.value) || 0;
+    const maxP = parseFloat(maxPriceFilter.value) || Infinity;
+    const availMode = availabilitySelect.value;
+    const sortMode = sortSelect.value;
+
+    let visibleCards = [];
+
+    allCards.forEach(card => {
+      const name = (card.getAttribute('data-name') || '').toLowerCase();
+      const brand = (card.getAttribute('data-brand') || '').toLowerCase();
+      const subcat = card.getAttribute('data-subcat') || '';
+      const disc = parseFloat(card.getAttribute('data-discount')) || 0;
+      const price = parseFloat(card.getAttribute('data-price')) || 0;
+      const isOOS = card.getAttribute('data-oos') === '1';
+
+      const matchesSearch = !q || name.includes(q) || brand.includes(q);
+      const matchesSubcat = !selectedSubcat || subcat === selectedSubcat;
+      const matchesDiscount = disc >= minDisc;
+      const matchesPrice = price <= maxP;
+      const matchesAvail = (availMode === 'all') || 
+                           (availMode === 'instock' && !isOOS) || 
+                           (availMode === 'oos' && isOOS);
+
+      if (matchesSearch && matchesSubcat && matchesDiscount && matchesPrice && matchesAvail) {
+        card.style.display = 'flex';
+        visibleCards.push(card);
+      } else {
+        card.style.display = 'none';
+      }
+    });
+
+    // Apply Sorting
+    visibleCards.sort((a, b) => {
+      const priceA = parseFloat(a.getAttribute('data-price')) || 0;
+      const priceB = parseFloat(b.getAttribute('data-price')) || 0;
+      const mrpA = parseFloat(a.getAttribute('data-mrp')) || 0;
+      const mrpB = parseFloat(b.getAttribute('data-mrp')) || 0;
+      const discA = parseFloat(a.getAttribute('data-discount')) || 0;
+      const discB = parseFloat(b.getAttribute('data-discount')) || 0;
+      const nameA = (a.getAttribute('data-name') || '').toLowerCase();
+      const nameB = (b.getAttribute('data-name') || '').toLowerCase();
+
+      switch (sortMode) {
+        case 'price-asc': return priceA - priceB;
+        case 'price-desc': return priceB - priceA;
+        case 'mrp-desc': return mrpB - mrpA;
+        case 'name-asc': return nameA.localeCompare(nameB);
+        case 'discount-desc':
+        default:
+          return discB - discA;
+      }
+    });
+
+    visibleCards.forEach(card => grid.appendChild(card));
+    grid.appendChild(emptyStateEl);
+
+    visibleCountEl.textContent = visibleCards.length;
+    emptyStateEl.style.display = visibleCards.length === 0 ? 'block' : 'none';
+  }
+
+  searchInput.addEventListener('input', applyFiltersAndSort);
+  subcatSelect.addEventListener('change', applyFiltersAndSort);
+  discountSelect.addEventListener('change', applyFiltersAndSort);
+  maxPriceFilter.addEventListener('input', applyFiltersAndSort);
+  availabilitySelect.addEventListener('change', applyFiltersAndSort);
+  sortSelect.addEventListener('change', applyFiltersAndSort);
+
+  // Open Product on Zepto when clicking anywhere on the card
+  grid.addEventListener('click', function (e) {
+    if (e.target.closest('a')) return;
+    const card = e.target.closest('.product-card');
+    if (card) {
+      const url = card.getAttribute('data-url');
+      if (url && url !== '#') {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    }
+  });
+
+  // CSV Export
+  document.getElementById('btn-export-csv').addEventListener('click', function () {
+    const visibleData = [];
+    allCards.forEach((card, i) => {
+      if (card.style.display !== 'none') {
+        const p = rawProducts[i];
+        if (p) visibleData.push(p);
+      }
+    });
+
+    if (visibleData.length === 0) {
+      alert('No visible products to export.');
+      return;
+    }
+
+    const headers = ['Product Name', 'Brand', 'Category', 'Subcategory', 'Pack Size', 'MRP (INR)', 'Selling Price (INR)', 'Discount (%)', 'Status', 'Product URL'];
+    const csvRows = [headers.join(',')];
+
+    visibleData.forEach(p => {
+      const row = [
+        '"' + (p.name || '').replace(/"/g, '""') + '"',
+        '"' + (p.brand || '').replace(/"/g, '""') + '"',
+        '"' + (p.category || '').replace(/"/g, '""') + '"',
+        '"' + (p.subcategory || '').replace(/"/g, '""') + '"',
+        '"' + (p.packSize || '').replace(/"/g, '""') + '"',
+        p.mrp.toFixed(2),
+        p.price.toFixed(2),
+        p.discountPercent,
+        p.isOutOfStock ? '"Out of Stock"' : '"In Stock"',
+        '"' + (p.url || '').replace(/"/g, '""') + '"'
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = csvRows.join('\\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'zepto_deals_' + new Date().toISOString().slice(0, 10) + '.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  });
+<\/script>
+</body>
+</html>`;
+
+    // Use Blob URL for CSP resilience and standard popup-blocker friendliness
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, '_blank');
+    return Boolean(win);
+  }
+
+  function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  // ================== Panel UI ==================
+  function injectStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+      #zdeals-fab { position: fixed; bottom: 32px; right: 32px; z-index: 999999; width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer; background: #5300f8; color: #ffffff; font-size: 24px; box-shadow: 0 6px 20px rgba(83, 0, 248, 0.42); transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; }
+      #zdeals-fab:hover { transform: scale(1.08) translateY(-2px); box-shadow: 0 8px 26px rgba(83, 0, 248, 0.55); background: #4300c7; }
+      #zdeals-panel { position: fixed; bottom: 100px; right: 32px; z-index: 999999; width: 360px; max-width: 90vw; max-height: 78vh; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 14px; display: none; flex-direction: column; overflow: hidden; }
+      #zdeals-panel.open { display: flex; }
+      #zdeals-panel * { box-sizing: border-box; }
+      #zdeals-panel .zd-header { padding: 15px 18px; font-weight: 700; color: #0f172a; background: #f8fafc; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+      #zdeals-panel .zd-refresh { cursor: pointer; font-size: 11.5px; color: #64748b; font-weight: 600; padding: 4px 9px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff; transition: all 0.2s; }
+      #zdeals-panel .zd-refresh:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
+      
+      /* Search bar */
+      #zdeals-panel .zd-search-bar { padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 8px; align-items: center; }
+      #zdeals-panel .zd-search-wrap { position: relative; flex: 1; display: flex; align-items: center; min-width: 0; }
+      #zdeals-panel .zd-search-wrap svg { position: absolute; left: 10px; pointer-events: none; color: #94a3b8; }
+      #zdeals-panel #zdeals-search-input { width: 100%; padding: 8px 26px 8px 30px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff; color: #0f172a; transition: all 0.2s ease; }
+      #zdeals-panel #zdeals-search-input:focus { border-color: #5300f8; box-shadow: 0 0 0 3px rgba(83, 0, 248, 0.12); }
+      #zdeals-panel #zdeals-search-clear { position: absolute; right: 8px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 13px; padding: 2px 4px; line-height: 1; }
+      #zdeals-panel #zdeals-search-clear:hover { color: #475569; }
+      #zdeals-panel #zdeals-search-btn { padding: 8px 14px; background: #5300f8; color: #ffffff; border: none; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background 0.15s ease; white-space: nowrap; flex-shrink: 0; }
+      #zdeals-panel #zdeals-search-btn:hover { background: #4300c7; }
+      #zdeals-panel #zdeals-search-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+      /* Quick Actions row (Quick Scan <51 and Blockbuster Top Picks side-by-side) */
+      #zdeals-panel .zd-quick-actions { display: flex; gap: 8px; padding: 8px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+      #zdeals-panel #zdeals-quick-scan-btn { flex: 1; padding: 7px 6px; background: #ede9fe; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 8px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: all 0.15s ease; white-space: nowrap; }
+      #zdeals-panel #zdeals-quick-scan-btn:hover { background: #e0e7ff; border-color: #a5b4fc; color: #3730a3; }
+      #zdeals-panel #zdeals-quick-scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      /* Milder warm tone for Blockbuster deals */
+      #zdeals-panel #zdeals-blockbuster-btn { flex: 1; padding: 7px 6px; background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 8px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; transition: all 0.15s ease; white-space: nowrap; }
+      #zdeals-panel #zdeals-blockbuster-btn:hover { background: #ffedd5; border-color: #fdba74; color: #9a3412; }
+      #zdeals-panel #zdeals-blockbuster-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      #zdeals-body { overflow-y: auto; flex: 1; background: #ffffff; }
+      #zdeals-panel .zd-cat { padding: 12px 18px; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; font-weight: 500; color: #334155; transition: background 0.15s; }
+      #zdeals-panel .zd-cat:hover { background: #f8fafc; }
+      #zdeals-panel .zd-cat .zd-chevron { transition: transform 0.2s ease; color: #94a3b8; font-size: 11px; }
+      #zdeals-panel .zd-cat.expanded .zd-chevron { transform: rotate(90deg); }
+      
+      /* Special Blockbuster Deals category style */
+      #zdeals-panel .zd-cat.zd-special { background: #f5f3ff; color: #5300f8; font-weight: 700; border-bottom: 1px solid #ede9fe; }
+      #zdeals-panel .zd-cat.zd-special:hover { background: #ede9fe; }
+      #zdeals-panel .zd-cat.zd-special .zd-chevron { color: #5300f8; }
+      .zd-special-tag { font-size: 9.5px; font-weight: 800; letter-spacing: 0.05em; background: #ede9fe; color: #5300f8; padding: 2px 6px; border-radius: 9999px; text-transform: uppercase; }
+
+      #zdeals-panel .zd-subcat-list { background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+      #zdeals-panel .zd-subcat { padding: 10px 18px 10px 30px; display: flex; align-items: center; gap: 12px; cursor: pointer; color: #475569; font-size: 13.5px; transition: background 0.15s; }
+      #zdeals-panel .zd-subcat:hover { background: #f1f5f9; color: #0f172a; }
+      #zdeals-panel .zd-subcat input[type=checkbox] { width: 16px; height: 16px; accent-color: #5300f8; cursor: pointer; flex-shrink: 0; margin: 0; border: 1px solid #cbd5e1; border-radius: 4px; }
+      #zdeals-panel .zd-subcat.disabled { opacity: 0.5; cursor: not-allowed; }
+      #zdeals-panel .zd-loading { padding: 18px 20px; color: #64748b; font-size: 13.5px; text-align: center; }
+      #zdeals-footer { padding: 14px 18px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+      #zdeals-fetch-btn { width: 100%; padding: 12px; border: none; border-radius: 8px; background: #5300f8; color: #ffffff; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+      #zdeals-fetch-btn:disabled { background: #cbd5e1; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
+      #zdeals-fetch-btn:not(:disabled):hover { background: #4300c7; }
+      #zdeals-fetch-btn[data-state="ready"] { background: #10b981; }
+      #zdeals-fetch-btn[data-state="ready"]:hover { background: #059669; }
+      @media (max-width: 480px) { #zdeals-panel { right: 16px; left: 16px; width: auto; bottom: 90px; } #zdeals-fab { right: 16px; bottom: 16px; } }
+    `;
+    document.head.appendChild(style);
+  }
+
+  const selections = new Map();
+  function selectionCountForCategory(categoryId) { return selections.has(categoryId) ? selections.get(categoryId).subcats.size : 0; }
+  function totalSelectionCount() { let n = 0; selections.forEach(e => n += e.subcats.size); return n; }
+
+  function resetFetchButton() {
+    const btn = document.getElementById('zdeals-fetch-btn');
+    btn.dataset.state = '';
+    btn.style.background = '';
+    const n = totalSelectionCount();
+    btn.textContent = n > 0 ? `Fetch Deals (${n} selected)` : 'Select subcategories';
+    btn.disabled = n === 0;
+  }
+
+  function toggleSelection(category, subcategory, checked) {
+    const btn = document.getElementById('zdeals-fetch-btn');
+    if (btn) btn.dataset.mode = 'category';
+    const searchInput = document.getElementById('zdeals-search-input');
+    const searchClear = document.getElementById('zdeals-search-clear');
+    if (searchInput && searchInput.value) {
+      searchInput.value = '';
+      if (searchClear) searchClear.style.display = 'none';
+      currentSearchQuery = '';
+    }
+
+    if (checked) {
+      if (!selections.has(category.categoryId)) selections.set(category.categoryId, { category, subcats: new Map() });
+      selections.get(category.categoryId).subcats.set(subcategory.subCategoryId, subcategory);
+    } else {
+      const entry = selections.get(category.categoryId);
+      if (entry) {
+        entry.subcats.delete(subcategory.subCategoryId);
+        if (entry.subcats.size === 0) selections.delete(category.categoryId);
+      }
+    }
+    resetFetchButton();
+  }
+
+  function refreshDisabledState(subListEl, category) {
+    const atLimit = selectionCountForCategory(category.categoryId) >= MAX_SELECTED_PER_CATEGORY;
+    subListEl.querySelectorAll('.zd-subcat').forEach(row => {
+      const cb = row.querySelector('input[type=checkbox]');
+      if (!cb.checked) { row.classList.toggle('disabled', atLimit); cb.disabled = atLimit; }
+    });
+  }
+
+  function buildPanel() {
+    const fab = document.createElement('button');
+    fab.id = 'zdeals-fab'; 
+    fab.setAttribute('title', 'Open Zepto Deals & Search');
+    fab.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>';
+    document.body.appendChild(fab);
+
+    const panel = document.createElement('div');
+    panel.id = 'zdeals-panel';
+    panel.innerHTML = `
+      <div class="zd-header">
+        <span>Zepto Deals</span>
+        <button class="zd-refresh" id="zdeals-refresh" title="Reset categories">Reset</button>
+      </div>
+      <div class="zd-search-bar">
+        <div class="zd-search-wrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="zdeals-search-input" placeholder="Search products (e.g. sweets, snacks)..." />
+          <button id="zdeals-search-clear" style="display:none;" title="Clear">✕</button>
+        </div>
+        <button id="zdeals-search-btn">Search</button>
+      </div>
+      <div class="zd-quick-actions">
+        <button id="zdeals-quick-scan-btn" title="Quick Scan (≤₹51, 2 pages) across daily essentials">
+          <span>⚡</span>
+          <span>Quick Scan ≤₹51</span>
+        </button>
+        <button id="zdeals-blockbuster-btn" title="Scan Zepto's curated Blockbuster Deals (Top Picks) in 1-click">
+          <span>🔥</span>
+          <span>Blockbuster Picks</span>
+        </button>
+      </div>
+      <div id="zdeals-body"></div>
+      <div id="zdeals-footer">
+        <button id="zdeals-fetch-btn" disabled>Select subcategories</button>
+      </div>
+    `;
+    document.body.appendChild(panel);
+
+    const searchInput = document.getElementById('zdeals-search-input');
+    const searchBtn = document.getElementById('zdeals-search-btn');
+    const searchClear = document.getElementById('zdeals-search-clear');
+    const quickScanBtn = document.getElementById('zdeals-quick-scan-btn');
+    const blockbusterBtn = document.getElementById('zdeals-blockbuster-btn');
+    const fetchBtn = document.getElementById('zdeals-fetch-btn');
+
+    const QUICK_SCAN_CATEGORIES = [
+      'Grocery',
+      'Dairy',
+      'Masala',
+      'Sauces',
+      'Packaged Goods',
+      'Cleaning',
+      'Household',
+      'Oral Care',
+      'Skincare',
+      'Haircare',
+      'Body Care'
+    ];
+
+    searchInput.addEventListener('input', () => {
+      searchClear.style.display = searchInput.value.trim() ? 'block' : 'none';
+    });
+
+    searchClear.addEventListener('click', (e) => {
+      e.stopPropagation();
+      searchInput.value = '';
+      searchClear.style.display = 'none';
+      currentSearchQuery = '';
+      resetFetchButton();
+    });
+
+    async function triggerSearch() {
+      const q = (searchInput.value || '').trim();
+      if (!q) return;
+
+      // Deselect any category selections
+      selections.clear();
+      document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
+        row.classList.remove('disabled');
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) { cb.checked = false; cb.disabled = false; }
+      });
+
+      searchBtn.disabled = true;
+      if (quickScanBtn) quickScanBtn.disabled = true;
+      if (blockbusterBtn) blockbusterBtn.disabled = true;
+      searchInput.disabled = true;
+      fetchBtn.disabled = true;
+
+      const updateStatus = (msg) => { fetchBtn.textContent = msg; };
+
+      try {
+        if (!capturedHeaders) {
+          await ensureSessionAtStart(updateStatus);
+        }
+        fetchedProductsData = await getSearchResults(q, updateStatus);
+        currentSearchQuery = q;
+        flatSelectionsData = [];
+
+        fetchBtn.dataset.state = 'ready';
+        fetchBtn.dataset.mode = 'search';
+        fetchBtn.textContent = `View Results (${fetchedProductsData.length} items for "${q}")`;
+        fetchBtn.disabled = false;
+
+        // Auto-open grid tab
+        const opened = openResultsTab(`Search: "${q}"`, fetchedProductsData);
+        if (!opened) {
+          fetchBtn.textContent = `🔓 Popup blocked — Click to View Results (${fetchedProductsData.length} items)`;
+        }
+      } catch (err) {
+        console.error('[zdeals]', err);
+        fetchBtn.textContent = 'Search failed. Please retry.';
+        setTimeout(resetFetchButton, 2500);
+      } finally {
+        searchBtn.disabled = false;
+        if (quickScanBtn) quickScanBtn.disabled = false;
+        if (blockbusterBtn) blockbusterBtn.disabled = false;
+        searchInput.disabled = false;
+      }
+    }
+
+    async function triggerQuickScan() {
+      const maxPrice = 51;
+      const targetQueries = QUICK_SCAN_CATEGORIES;
+
+      selections.clear();
+      document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
+        row.classList.remove('disabled');
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) { cb.checked = false; cb.disabled = false; }
+      });
+
+      if (quickScanBtn) quickScanBtn.disabled = true;
+      if (blockbusterBtn) blockbusterBtn.disabled = true;
+      searchBtn.disabled = true;
+      searchInput.disabled = true;
+      fetchBtn.disabled = true;
+
+      const updateStatus = (msg) => { fetchBtn.textContent = msg; };
+
+      try {
+        if (!capturedHeaders) {
+          await ensureSessionAtStart(updateStatus);
+        }
+
+        const allResults = [];
+        const seenKeys = new Set();
+
+        for (let i = 0; i < targetQueries.length; i++) {
+          const kw = targetQueries[i];
+          updateStatus(`Quick Scan (${i + 1}/${targetQueries.length}): "${kw}" ≤₹${maxPrice}...`);
+          if (i > 0) {
+            await new Promise(r => setTimeout(r, 650 + Math.random() * 350));
+          }
+          const res = await getSearchResults(kw, () => {}, { maxPrice, maxPages: 2 });
+          for (const item of res) {
+            const key = item.id || item.url || (item.name + ':' + item.price);
+            if (!seenKeys.has(key)) {
+              seenKeys.add(key);
+              allResults.push(item);
+            }
+          }
+        }
+
+        fetchedProductsData = allResults.sort((a, b) => b.discountPercent - a.discountPercent);
+        currentSearchQuery = `Quick Deals ≤₹${maxPrice}`;
+        flatSelectionsData = [];
+
+        fetchBtn.dataset.state = 'ready';
+        fetchBtn.dataset.mode = 'search';
+        fetchBtn.textContent = `View Results (${fetchedProductsData.length} items ≤₹${maxPrice})`;
+        fetchBtn.disabled = false;
+
+        const opened = openResultsTab(`Quick Deals (≤₹${maxPrice})`, fetchedProductsData);
+        if (!opened) {
+          fetchBtn.textContent = `🔓 Popup blocked — Click to View Results (${fetchedProductsData.length} items)`;
+        }
+      } catch (err) {
+        console.error('[zdeals]', err);
+        fetchBtn.textContent = 'Quick Scan failed. Retry.';
+        setTimeout(resetFetchButton, 2500);
+      } finally {
+        if (quickScanBtn) quickScanBtn.disabled = false;
+        if (blockbusterBtn) blockbusterBtn.disabled = false;
+        searchBtn.disabled = false;
+        searchInput.disabled = false;
+      }
+    }
+
+    if (quickScanBtn) {
+      quickScanBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerQuickScan();
+      });
+    }
+
+    async function triggerBlockbusterScan() {
+      // Clear any search input & existing category selections
+      searchInput.value = '';
+      searchClear.style.display = 'none';
+      currentSearchQuery = '';
+      selections.clear();
+      document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
+        row.classList.remove('disabled');
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) { cb.checked = false; cb.disabled = false; }
+      });
+
+      if (blockbusterBtn) blockbusterBtn.disabled = true;
+      if (quickScanBtn) quickScanBtn.disabled = true;
+      searchBtn.disabled = true;
+      searchInput.disabled = true;
+      fetchBtn.disabled = true;
+
+      const updateStatus = (msg) => { fetchBtn.textContent = msg; };
+
+      try {
+        if (!capturedHeaders) {
+          await ensureSessionAtStart(updateStatus);
+        }
+
+        updateStatus('Extracting Blockbuster Top Picks (Page 1)...');
+        const topPicksSubcat = {
+          title: 'Top Picks',
+          categoryId: BLOCKBUSTER_CATEGORY.categoryId,
+          subCategoryId: BLOCKBUSTER_CATEGORY.subCategoryId
+        };
+
+        const subDeals = await getDeals(BLOCKBUSTER_CATEGORY, topPicksSubcat, updateStatus, 2);
+
+        // Sort by discount percent descending (highest deals at the very top)
+        subDeals.sort((a, b) => b.discountPercent - a.discountPercent);
+
+        fetchedProductsData = subDeals;
+        currentSearchQuery = '';
+        flatSelectionsData = [];
+
+        fetchBtn.dataset.state = 'ready';
+        fetchBtn.dataset.mode = 'blockbuster';
+        fetchBtn.textContent = `View Blockbuster Deals (${subDeals.length} items)`;
+        fetchBtn.disabled = false;
+
+        const opened = openResultsTab('🔥 Blockbuster Deals — Top Picks', subDeals);
+        if (!opened) {
+          fetchBtn.textContent = `🔓 Popup blocked — Click to View Results (${subDeals.length} items)`;
+        }
+      } catch (err) {
+        console.error('[zdeals]', err);
+        fetchBtn.textContent = 'Blockbuster scan failed. Retry.';
+        setTimeout(resetFetchButton, 2500);
+      } finally {
+        if (blockbusterBtn) blockbusterBtn.disabled = false;
+        if (quickScanBtn) quickScanBtn.disabled = false;
+        searchBtn.disabled = false;
+        searchInput.disabled = false;
+      }
+    }
+
+    if (blockbusterBtn) {
+      blockbusterBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerBlockbusterScan();
+      });
+    }
+
+    searchBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      triggerSearch();
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        triggerSearch();
+      }
+    });
+
+    fab.addEventListener('click', async () => {
+      panel.classList.toggle('open');
+      if (panel.classList.contains('open') && !document.getElementById('zdeals-body').dataset.loaded) {
+        document.getElementById('zdeals-body').innerHTML = '<div class="zd-loading">Warming up session...</div>';
+        await ensureSessionAtStart(msg => {
+            const b = document.getElementById('zdeals-body');
+            if (b) b.innerHTML = `<div class="zd-loading">${msg}</div>`;
+        });
+        await loadCategoryList(false);
+        document.getElementById('zdeals-body').dataset.loaded = '1';
+      }
+    });
+
+    document.getElementById('zdeals-refresh').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      selections.clear();
+      searchInput.value = '';
+      searchClear.style.display = 'none';
+      currentSearchQuery = '';
+      resetFetchButton();
+      await loadCategoryList(true);
+    });
+
+    fetchBtn.addEventListener('click', async () => {
+      
+      // STEP 2: Data is ready, open tab synchronously without popup blocker interference
+      if (fetchBtn.dataset.state === 'ready') {
+        if (fetchBtn.dataset.mode === 'search') {
+          openResultsTab(`Search: "${currentSearchQuery}"`, fetchedProductsData);
+        } else if (fetchBtn.dataset.mode === 'blockbuster') {
+          openResultsTab('🔥 Blockbuster Deals — Top Picks', fetchedProductsData);
+        } else {
+          const title = flatSelectionsData.length === 1 ? `${flatSelectionsData[0].category.name} — ${flatSelectionsData[0].subcategory.title}` : `Zepto Deals (${flatSelectionsData.length} subcategories)`;
+          openResultsTab(title, fetchedProductsData);
+        }
+        return;
+      }
+
+      // STEP 1: The user clicked Fetch for category selections.
+      fetchBtn.dataset.mode = 'category';
+      const flat = [];
+      selections.forEach(entry => entry.subcats.forEach(subcategory => flat.push({ category: entry.category, subcategory })));
+      if (flat.length === 0) return;
+
+      selections.clear();
+      document.querySelectorAll('#zdeals-body .zd-subcat').forEach(row => {
+        row.classList.remove('disabled');
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) { cb.checked = false; cb.disabled = false; }
+      });
+
+      fetchBtn.disabled = true;
+      
+      const updateStatus = (msg) => { fetchBtn.textContent = msg; };
+
+      try {
+        if (!capturedHeaders) {
+          await ensureSessionAtStart(updateStatus);
+        }
+        fetchedProductsData = await getDealsForSelection(flat, updateStatus);
+        flatSelectionsData = flat;
+        
+        fetchBtn.dataset.state = 'ready';
+        fetchBtn.textContent = `View Results (${fetchedProductsData.length} deals)`;
+        fetchBtn.disabled = false;
+
+        // Auto-open grid tab
+        const title = flat.length === 1 ? `${flat[0].category.name} — ${flat[0].subcategory.title}` : `Zepto Deals (${flat.length} subcategories)`;
+        const opened = openResultsTab(title, fetchedProductsData);
+        if (!opened) {
+          fetchBtn.textContent = `🔓 Popup blocked — Click to View Results (${fetchedProductsData.length} deals)`;
+        }
+      } catch (err) {
+        console.error('[zdeals]', err);
+        fetchBtn.textContent = 'Error. Please retry.';
+        setTimeout(resetFetchButton, 2000);
+      }
+    });
+  }
+
+  async function loadCategoryList(forceRefresh) {
+    const body = document.getElementById('zdeals-body');
+    body.innerHTML = '<div class="zd-loading">Loading categories...</div>';
+    try {
+      const categories = await getCategories(forceRefresh);
+      body.innerHTML = '';
+      categories.forEach(cat => {
+        const row = document.createElement('div');
+        const isSpecial = Boolean(cat.isSpecial || cat.categoryId === BLOCKBUSTER_CATEGORY.categoryId);
+        row.className = 'zd-cat' + (isSpecial ? ' zd-special' : '');
+        row.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span>${escapeHtml(cat.name)}</span>
+            ${isSpecial ? '<span class="zd-special-tag">DEALS</span>' : ''}
+          </div>
+          <span class="zd-chevron">▶</span>
+        `;
+        let expanded = false, subListEl = null;
+
+        row.addEventListener('click', async () => {
+          if (expanded) { subListEl.remove(); row.classList.remove('expanded'); expanded = false; return; }
+          expanded = true; row.classList.add('expanded');
+          subListEl = document.createElement('div'); subListEl.className = 'zd-subcat-list';
+          subListEl.innerHTML = '<div class="zd-loading">Loading subcategories...</div>';
+          row.insertAdjacentElement('afterend', subListEl);
+
+          try {
+            const subs = await getSubcategories(cat);
+            subListEl.innerHTML = '';
+            subs.forEach(sub => {
+              const subRow = document.createElement('label'); subRow.className = 'zd-subcat';
+              const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+              checkbox.addEventListener('change', () => {
+                if (checkbox.checked && selectionCountForCategory(cat.categoryId) >= MAX_SELECTED_PER_CATEGORY) { 
+                  checkbox.checked = false; 
+                  return; 
+                }
+                toggleSelection(cat, sub, checkbox.checked);
+                refreshDisabledState(subListEl, cat);
+              });
+              subRow.appendChild(checkbox); subRow.appendChild(document.createTextNode(sub.title));
+              subRow.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (e.target !== checkbox && !subRow.classList.contains('disabled')) {
+                  checkbox.checked = !checkbox.checked; checkbox.dispatchEvent(new Event('change'));
+                }
+              });
+              subListEl.appendChild(subRow);
+            });
+          } catch (err) { subListEl.innerHTML = '<div class="zd-loading">Failed to load subcategories</div>'; }
+        });
+        body.appendChild(row);
+      });
+    } catch (err) { body.innerHTML = '<div class="zd-loading">Failed to load categories</div>'; }
+  }
+
+  // ================== Boot ==================
+  injectStyles();
+  buildPanel();
+})();

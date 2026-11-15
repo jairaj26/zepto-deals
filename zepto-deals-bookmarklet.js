@@ -379,9 +379,11 @@
 
   async function ensureSessionAtStart(updateStatusFn) {
     extractLocationFromEnv();
-    if (capturedHeaders) return true;
-    updateStatusFn('Syncing secure session...');
     installOmniCatcher();
+    if (capturedHeaders || (findStoreId() !== FALLBACK_STORE_ID && getCookie('XSRF-TOKEN'))) {
+      return true;
+    }
+    updateStatusFn('Syncing secure session...');
     triggerPhantomNavigation();
     const success = await waitForCapture(5000);
     if (success) updateStatusFn('Session synced successfully.');
@@ -531,8 +533,8 @@
       c.categoryId !== BLOCKBUSTER_CATEGORY.categoryId && 
       (c.name || '').toLowerCase() !== 'blockbuster deals'
     );
-    // Return clean list of standard categories (Blockbuster Deals is powered by dedicated 1-click button)
-    return cleanList;
+    // Return Blockbuster Deals pinned at top, followed by standard categories
+    return [BLOCKBUSTER_CATEGORY, ...cleanList];
   }
 
   async function getSubcategories(category, forceRefresh) {
@@ -633,8 +635,8 @@
         discountPercent = 0;
       }
 
-      // In category browsing require discount > 0; in search include all matching items
-      if (!requireDiscount || discountPercent > 0) {
+      // In category browsing require discount > 0 or flash deal price <= 5; in search include all matching items
+      if (!requireDiscount || discountPercent > 0 || price <= 5) {
         const productSlug = (prod && prod.slug) || slugify(name);
         const variantId = (variant && variant.id) || '';
         const productUrl = variantId ? `https://www.zepto.com/pn/${productSlug}/pvid/${variantId}` : `https://www.zepto.com/pn/${productSlug}`;
@@ -670,6 +672,7 @@
         }
 
         products.push({
+          id: pvid || '',
           name: name,
           brand: (prod && prod.brand) || '',
           packSize: (variant && variant.formattedPacksize) || (p && p.formattedPacksize) || '',
@@ -745,6 +748,7 @@
     }
 
     const products = [];
+    const seenKeys = new Set();
     let body = {
       page_type: 'SUBCATEGORY', version: 'v2',
       latitude: (capturedLocation && capturedLocation.latitude) ? capturedLocation.latitude : DEFAULT_LATITUDE,
@@ -772,7 +776,14 @@
       }
 
       const widgets = (data.pageLayout && data.pageLayout.widgets) || [];
-      products.push(...extractProductsFromWidgets(widgets, category, subcategory, true));
+      const extracted = extractProductsFromWidgets(widgets, category, subcategory, true);
+      for (const item of extracted) {
+        const key = item.id || item.url || (item.name + ':' + item.price);
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          products.push(item);
+        }
+      }
 
       const endOfPage = data.pageLayout && data.pageLayout.endOfPage;
       const nextParams = data.pageLayout && data.pageLayout.nextPageParams;
@@ -786,13 +797,20 @@
 
   async function getDealsForSelection(selections, updateStatusFn) {
     const all = [];
+    const seenKeys = new Set();
     for (let i = 0; i < selections.length; i++) {
       if (i > 0) {
         await new Promise(r => setTimeout(r, 600 + Math.random() * 800));
       }
       const { category, subcategory } = selections[i];
       const products = await getDeals(category, subcategory, updateStatusFn);
-      all.push(...products);
+      for (const p of products) {
+        const key = p.id || p.url || (p.name + ':' + p.price);
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          all.push(p);
+        }
+      }
     }
     return all.sort((a, b) => b.discountPercent - a.discountPercent);
   }
@@ -895,13 +913,13 @@
     const maxPrice = options.maxPrice ? Number(options.maxPrice) : null;
     const subcategory = { title: maxPrice ? `"${query}" (≤₹${maxPrice})` : `"${query}"` };
     let bffFailed = false;
+    let bffSucceeded = false;
 
     // Check if session headers are present for BFF search; if missing, fall back to RSC directly
     const hasBffHeaders = Boolean(capturedHeaders || getCookie('XSRF-TOKEN') || getCookie('store_id') || findStoreId());
 
-    // When maxPrice is provided, 1 page (Page 0) is usually sufficient because server-side filter puts all matching items right on Page 1!
-    // But if maxPages is specified in options, respect it (defaults to 1 if maxPrice is active, or MAX_SEARCH_PAGES otherwise)
-    const maxPagesToFetch = options.maxPages || (maxPrice ? 1 : MAX_SEARCH_PAGES);
+    // Respect maxPages option (default 2 when maxPrice is active, or MAX_SEARCH_PAGES otherwise)
+    const maxPagesToFetch = options.maxPages || (maxPrice ? 2 : MAX_SEARCH_PAGES);
 
     if (hasBffHeaders) {
       for (let page = 0; page < maxPagesToFetch; page++) {
@@ -922,6 +940,7 @@
         }
 
         if (!data) break;
+        bffSucceeded = true;
 
         // Search returns array in data.layout directly!
         let widgets = [];
@@ -943,17 +962,14 @@
           widgets.push({ data: { items: directItems } });
         }
 
-        const extracted = extractProductsFromWidgets(widgets, category, subcategory, false, maxPrice);
-        if (extracted.length === 0 && widgets.length === 0) {
+        if (widgets.length === 0) {
           break;
         }
 
+        const extracted = extractProductsFromWidgets(widgets, category, subcategory, false, maxPrice);
         products.push(...extracted);
 
         if (data.endOfPage || (data.data && data.data.endOfPage) || (data.pageLayout && data.pageLayout.endOfPage) || data.hasReachedEnd) {
-          break;
-        }
-        if (extracted.length < 4) {
           break;
         }
       }
@@ -961,8 +977,8 @@
       bffFailed = true;
     }
 
-    // Transparent RSC fallback if BFF failed or returned no items
-    if (bffFailed || products.length === 0) {
+    // Transparent RSC fallback only if BFF failed or wasn't reachable and returned no items
+    if (bffFailed || (!bffSucceeded && products.length === 0)) {
       updateStatusFn(`Searching via Next.js RSC: "${query}"...`);
       try {
         const rscProducts = await searchRsc(query);
@@ -975,7 +991,16 @@
       }
     }
 
-    return products.sort((a, b) => b.discountPercent - a.discountPercent);
+    const seen = new Set();
+    const deduped = [];
+    for (const p of products) {
+      const key = p.id || p.url || (p.name + ':' + p.price);
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(p);
+      }
+    }
+    return deduped.sort((a, b) => b.discountPercent - a.discountPercent);
   }
 
   // ================== Zepto Grid Results Rendering ==================
@@ -1003,7 +1028,7 @@
         </div>
 
         <a href="${escapeHtml(p.url || '#')}" target="_blank" rel="noopener noreferrer" class="card-image-wrap" title="View ${escapeHtml(p.name)} on Zepto">
-          <img src="${p.imageUrl || 'https://cdn.zeptonow.com/web-static-assets-prod/artifacts/17.3.0/favicon.png'}" 
+          <img src="${escapeHtml(p.imageUrl || 'https://cdn.zeptonow.com/web-static-assets-prod/artifacts/17.3.0/favicon.png')}" 
                alt="${escapeHtml(p.name)}" 
                class="prod-img" 
                loading="lazy" 
@@ -1460,7 +1485,7 @@
   </div>
 
 <script>
-  const rawProducts = ${JSON.stringify(products)};
+  const rawProducts = ${JSON.stringify(products).replace(/</g, '\\u003c')};
   const grid = document.getElementById('product-grid');
   const searchInput = document.getElementById('search');
   const subcatSelect = document.getElementById('filter-subcat');
@@ -1606,7 +1631,8 @@
     // Use Blob URL for CSP resilience and standard popup-blocker friendliness
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
-    window.open(blobUrl, '_blank');
+    const win = window.open(blobUrl, '_blank');
+    return Boolean(win);
   }
 
   function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -1747,9 +1773,9 @@
         <button id="zdeals-search-btn">Search</button>
       </div>
       <div class="zd-quick-actions">
-        <button id="zdeals-quick-scan-btn" title="Quick Scan Page 1 under ₹51 across daily essentials">
+        <button id="zdeals-quick-scan-btn" title="Quick Scan (≤₹51, 2 pages) across daily essentials">
           <span>⚡</span>
-          <span>Quick Scan &lt;₹51</span>
+          <span>Quick Scan ≤₹51</span>
         </button>
         <button id="zdeals-blockbuster-btn" title="Scan Zepto's curated Blockbuster Deals (Top Picks) in 1-click">
           <span>🔥</span>
@@ -1830,7 +1856,10 @@
         fetchBtn.disabled = false;
 
         // Auto-open grid tab
-        openResultsTab(`Search: "${q}"`, fetchedProductsData);
+        const opened = openResultsTab(`Search: "${q}"`, fetchedProductsData);
+        if (!opened) {
+          fetchBtn.textContent = `🔓 Popup blocked — Click to View Results (${fetchedProductsData.length} items)`;
+        }
       } catch (err) {
         console.error('[zdeals]', err);
         fetchBtn.textContent = 'Search failed. Please retry.';
@@ -1876,9 +1905,9 @@
           if (i > 0) {
             await new Promise(r => setTimeout(r, 650 + Math.random() * 350));
           }
-          const res = await getSearchResults(kw, () => {}, { maxPrice, maxPages: 1 });
+          const res = await getSearchResults(kw, () => {}, { maxPrice, maxPages: 2 });
           for (const item of res) {
-            const key = item.url || (item.name + item.price);
+            const key = item.id || item.url || (item.name + ':' + item.price);
             if (!seenKeys.has(key)) {
               seenKeys.add(key);
               allResults.push(item);
@@ -1895,7 +1924,10 @@
         fetchBtn.textContent = `View Results (${fetchedProductsData.length} items ≤₹${maxPrice})`;
         fetchBtn.disabled = false;
 
-        openResultsTab(`Quick Deals (≤₹${maxPrice})`, fetchedProductsData);
+        const opened = openResultsTab(`Quick Deals (≤₹${maxPrice})`, fetchedProductsData);
+        if (!opened) {
+          fetchBtn.textContent = `🔓 Popup blocked — Click to View Results (${fetchedProductsData.length} items)`;
+        }
       } catch (err) {
         console.error('[zdeals]', err);
         fetchBtn.textContent = 'Quick Scan failed. Retry.';
@@ -1961,7 +1993,10 @@
         fetchBtn.textContent = `View Blockbuster Deals (${subDeals.length} items)`;
         fetchBtn.disabled = false;
 
-        openResultsTab('🔥 Blockbuster Deals — Top Picks', subDeals);
+        const opened = openResultsTab('🔥 Blockbuster Deals — Top Picks', subDeals);
+        if (!opened) {
+          fetchBtn.textContent = `🔓 Popup blocked — Click to View Results (${subDeals.length} items)`;
+        }
       } catch (err) {
         console.error('[zdeals]', err);
         fetchBtn.textContent = 'Blockbuster scan failed. Retry.';
@@ -2061,7 +2096,10 @@
 
         // Auto-open grid tab
         const title = flat.length === 1 ? `${flat[0].category.name} — ${flat[0].subcategory.title}` : `Zepto Deals (${flat.length} subcategories)`;
-        openResultsTab(title, fetchedProductsData);
+        const opened = openResultsTab(title, fetchedProductsData);
+        if (!opened) {
+          fetchBtn.textContent = `🔓 Popup blocked — Click to View Results (${fetchedProductsData.length} deals)`;
+        }
       } catch (err) {
         console.error('[zdeals]', err);
         fetchBtn.textContent = 'Error. Please retry.';
